@@ -6,30 +6,34 @@
 """
 import copy
 import random
-random.seed(4)
 # Torch imports
 import torch
-from torch.autograd import Variable
+# from torch.autograd import Variable
 # In-repo imports
 from helper_functions import (save_prediction_image,
                               save_input_image,
                               save_image_difference,
                               calculate_mask_similarity,
                               calculate_image_distance)
+random.seed(4)
 
 
 class AdaptiveSegmentationMaskAttack:
     def __init__(self, device_id, model, tau, beta):
+        self.temporary_class_id = None
+        self.unique_classes = None  # much like a bit hacking that this is quite dynamic
         self.device_id = device_id
         self.model = model
         self.tau = tau
         self.beta = beta
 
-    def update_perturbation_multiplier(self, beta, tau, iou):
+    @staticmethod
+    def update_perturbation_multiplier(beta, tau, iou):
         return beta * iou + tau
 
-    def calculate_l2_loss(self, x, y):
-        loss = (x - y)**2
+    @staticmethod
+    def calculate_l2_loss(x, y):
+        loss = (x - y) ** 2
         for a in reversed(range(1, loss.dim())):
             loss = loss.sum(a, keepdim=False)
         loss = loss.sum()
@@ -37,6 +41,9 @@ class AdaptiveSegmentationMaskAttack:
 
     def calculate_pred_loss(self, target_mask, pred_out, model_output):
         loss = 0
+        if self.unique_classes is None:
+            print(f"attack object has unique classes not set (currently None), returning from calculating loss")
+            return None
         for single_class in self.unique_classes:
             # Calculating Equation 2 in the paper
 
@@ -45,15 +52,15 @@ class AdaptiveSegmentationMaskAttack:
 
             # \mathds{1}_{\{\mathbf{Y}^{A} \, =\, c\}}:
             optimization_mask = copy.deepcopy(target_mask)
-            optimization_mask[optimization_mask != single_class] = self. temporary_class_id
+            optimization_mask[optimization_mask != single_class] = self.temporary_class_id
             optimization_mask[optimization_mask == single_class] = 1
-            optimization_mask[optimization_mask == self. temporary_class_id] = 0
+            optimization_mask[optimization_mask == self.temporary_class_id] = 0
 
             # \mathds{1}_{\{\arg \max_M(g(\theta, \mathbf{X}_n)) \, \neq \, c\}}:
             prediction_mask = copy.deepcopy(pred_out)[0]
-            prediction_mask[prediction_mask != single_class] = self. temporary_class_id
+            prediction_mask[prediction_mask != single_class] = self.temporary_class_id
             prediction_mask[prediction_mask == single_class] = 0
-            prediction_mask[prediction_mask == self. temporary_class_id] = 1
+            prediction_mask[prediction_mask == self.temporary_class_id] = 1
 
             # Calculate channel loss
             channel_loss = torch.sum(out_channel * optimization_mask * prediction_mask)
@@ -70,7 +77,8 @@ class AdaptiveSegmentationMaskAttack:
         # Unique classes are needed to simplify prediction loss
         self.unique_classes = unique_class_list
         # Have a look at calculate_pred_loss to see where this is used
-        self. temporary_class_id = random.randint(0, 999)
+        # select a out-of-sample distribution class
+        self.temporary_class_id = random.randint(0, 999)
         while self.temporary_class_id in self.unique_classes:
             self.temporary_class_id = random.randint(0, 999)
 
@@ -79,7 +87,7 @@ class AdaptiveSegmentationMaskAttack:
         # Get a copy of target mask to use it for stats
         target_mask_numpy = copy.deepcopy(target_mask).numpy()
         # Target mask
-        target_mask = (target_mask).float().cuda(self.device_id)
+        target_mask = target_mask.float().cuda(self.device_id)
 
         # Image to perform the attack on
         image_to_optimize = input_image.unsqueeze(0)
@@ -87,7 +95,8 @@ class AdaptiveSegmentationMaskAttack:
         org_im_copy = copy.deepcopy(image_to_optimize.cpu()).cuda(self.device_id)
         for single_iter in range(total_iter):
             # Put in variable to get grads later on
-            image_to_optimize = Variable(image_to_optimize.cuda(self.device_id), requires_grad=True)
+            # Variable deprecated in later torch: they return tensors instead, and autograd = true as default
+            # image_to_optimize = Variable(image_to_optimize.cuda(self.device_id), requires_grad=True)
 
             # Forward pass
             out = self.model(image_to_optimize)
@@ -109,6 +118,7 @@ class AdaptiveSegmentationMaskAttack:
             perturbed_im_out = self.model(perturbed_im)
 
             # Discretize perturbed image to calculate stats
+            perturbed_im_pred: torch.Tensor
             perturbed_im_pred = torch.argmax(perturbed_im_out, dim=1).float()[0]
             perturbed_im_pred = perturbed_im_pred.detach().cpu().numpy()
 
@@ -124,10 +134,13 @@ class AdaptiveSegmentationMaskAttack:
             image_to_optimize = perturbed_im.data.clamp_(0, 1)
             if single_iter % 20 == 0:
                 if save_samples:
-                    save_prediction_image(pred_out.cpu().detach().numpy()[0], 'iter_' + str(single_iter), save_path+'prediction')
-                    save_input_image(image_to_optimize.data.cpu().detach().numpy(), 'iter_' + str(single_iter), save_path+'modified_image')
-                    save_image_difference(image_to_optimize.data.cpu().detach().numpy(), org_im_copy.data.cpu().detach().numpy(),
-                                          'iter_' + str(single_iter), save_path+'added_perturbation')
+                    save_prediction_image(pred_out.cpu().detach().numpy()[0], 'iter_' + str(single_iter),
+                                          save_path + 'prediction')
+                    save_input_image(image_to_optimize.data.cpu().detach().numpy(), 'iter_' + str(single_iter),
+                                     save_path + 'modified_image')
+                    save_image_difference(image_to_optimize.data.cpu().detach().numpy(),
+                                          org_im_copy.data.cpu().detach().numpy(),
+                                          'iter_' + str(single_iter), save_path + 'added_perturbation')
                 if verbose:
                     print('Iter:', single_iter, '\tIOU Overlap:', iou,
                           '\tPixel Accuracy:', pixel_acc,

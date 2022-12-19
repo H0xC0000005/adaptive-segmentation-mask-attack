@@ -43,7 +43,7 @@ def save_prediction_image(pred_out, im_name, folder_name='result_images'):
 
 def save_image_difference(org_image, perturbed_image, im_name, folder_name='result_images'):
     """
-    Finds the absolute difference between two images in terms of grayscale plaette
+    Finds the absolute difference between two images in terms of grayscale palette
     """
     # Process images
     im1 = save_input_image(org_image, '', '', save_flag=False)
@@ -78,7 +78,7 @@ def load_model(path_to_model):
     return model
 
 
-def calculate_mask_similarity(mask1, mask2):
+def calculate_mask_similarity(mask1: np.ndarray, mask2: np.ndarray):
     """
     Calculates IOU and pixel accuracy between two masks
     """
@@ -90,9 +90,10 @@ def calculate_mask_similarity(mask1, mask2):
     iou = np.sum(intersection) / np.sum(union)
 
     # Calculate pixel accuracy
-    correct_pixels = mask1 == mask2
+    correct_pixels = (mask1 == mask2)
+    correct_pixels: np.ndarray
     pixel_acc = np.sum(correct_pixels) / (correct_pixels.shape[0]*correct_pixels.shape[1])
-    return (iou, pixel_acc)
+    return iou, pixel_acc
 
 
 def calculate_image_distance(im1, im2):
