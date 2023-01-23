@@ -15,7 +15,11 @@ from helper_functions import load_model
 from adaptive_attack import AdaptiveSegmentationMaskAttack
 import torch.nn as nn
 
+USE_CPU = True
+
 if __name__ == '__main__':
+
+
     # Glaucoma dataset
     cityscape_dataset = CityscapeDataset(
         '/home/peizhu/PycharmProjects/adaptive-segmentation-mask-attack/data/cityscape/image',
@@ -71,7 +75,8 @@ if __name__ == '__main__':
     # model = load_model(sys.argv[1])
     model.eval()
     model.cpu()
-    model.cuda(DEVICE_ID)
+    if not USE_CPU:
+        model.cuda(DEVICE_ID)
     print(f"device of net (by first layer parameter): {next(model.parameters()).device}")
 
     # Attack parameters
@@ -85,16 +90,27 @@ if __name__ == '__main__':
     # print(mask2)
 
     # Perform attack
-    adaptive_attack = AdaptiveSegmentationMaskAttack(DEVICE_ID, model, tau, beta)
+    adaptive_attack = AdaptiveSegmentationMaskAttack(DEVICE_ID, model, tau, beta, use_cpu=USE_CPU)
     """
         def perform_attack(self, input_image, org_mask, target_mask, unique_class_list,
                        total_iter=2501, save_samples=True, save_path='../adv_results/', verbose=True):
 
     """
-    m1set = np.unique(mask1.numpy())
-    m2set = np.unique(mask2.numpy())
+
+    # cannot normalize: need index to access model hierarchy
+    # TODO: normalize to [0,1]and then decode to [0,19] is also an option
+    m1list = np.unique(mask1.numpy())
+    m1set = CityscapeDataset.encode_full_class_array(m1list)
+    # kick out valid but out of training 255 label
+    m1set.remove(255)
+    # m1set = CityscapeDataset.normalize_label(m1set)
+    m2list = np.unique(mask2.numpy())
+    m2set = CityscapeDataset.encode_full_class_array(m2list)
+    # m2set = CityscapeDataset.normalize_label(m2set)
+    m2set.remove(255)
+
     adaptive_attack.perform_attack(im2,
                                    mask2,
                                    mask1,
                                    unique_class_list=list(set().union(m1set, m2set)),
-                                   total_iter=500)
+                                   total_iter=200)

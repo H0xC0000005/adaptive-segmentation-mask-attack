@@ -4,30 +4,43 @@
 @article: Impact of Adversarial Examples on Deep Learning Models for Biomedical Image Segmentation
 @conference: MICCAI-19
 """
-import copy
 import random
-# Torch imports
+from os.path import isfile
+
+import numpy as np
 import torch
 from torch.autograd import Variable
 
 # from torch.autograd import Variable
 # In-repo imports
-from helper_functions import (save_prediction_image,
-                              save_input_image,
-                              save_image_difference,
-                              calculate_mask_similarity,
-                              calculate_image_distance, save_image)
+from helper_functions import *
+from cityscape_dataset import CityscapeDataset
+import os
+
 random.seed(4)
 
 
+def debug_image_as_arr(arr: np.ndarray, name: str = "test",
+                       path: str = '/home/peizhu/PycharmProjects/adaptive-segmentation-mask-attack/'):
+    counter = 0
+    arr_cp = copy.deepcopy(arr)
+    while isfile(path + name + str(counter)):
+        counter += 1
+    if arr_cp.shape[0] in (1, 2, 3, 4) and len(arr_cp.shape) >= 3:
+        arr_cp = arr_cp.transpose([len(arr_cp.shape)] + [x for x in range(0, len(arr_cp.shape))])
+    img = Image.fromarray(arr_cp)
+    img.save(path + name + str(counter))
+
+
 class AdaptiveSegmentationMaskAttack:
-    def __init__(self, device_id, model, tau, beta):
+    def __init__(self, device_id, model, tau, beta, *, use_cpu=False):
         self.temporary_class_id = None
         self.unique_classes = None  # much like a bit hacking that this is quite dynamic
         self.device_id = device_id
         self.model = model
         self.tau = tau
         self.beta = beta
+        self.use_cpu = use_cpu
         # print(f"device of self model: {self.model.device}")
 
     @staticmethod
@@ -71,20 +84,33 @@ class AdaptiveSegmentationMaskAttack:
             loss = loss + channel_loss
         return loss
 
-    def perform_attack(self, input_image, org_mask: torch.Tensor, target_mask: torch.Tensor, unique_class_list,
-                       total_iter=2501, save_samples=True,
+    def perform_attack(self,
+                       input_image: torch.Tensor,
+                       org_mask: torch.Tensor,
+                       target_mask: torch.Tensor,
+                       unique_class_list,
+                       total_iter=2501,
+                       save_samples=True,
                        save_path='/home/peizhu/PycharmProjects/adaptive-segmentation-mask-attack/adv_results'
                                  '/cityscape_results/',
                        verbose=True):
-        print(f">>> begin to perform attack.")
+        device = "cpu" if self.use_cpu else self.device_id
+        print(f">>> begin to perform attack on device {device} with unique class list {unique_class_list}.")
         print(f"DEBUG: type of org mask: {type(org_mask)}, size of origin mask: {org_mask.numpy().shape}")
         print(f"DEBUG: type of tar mask: {type(target_mask)}, size of origin mask: {target_mask.numpy().shape}")
 
         if save_samples:
             # Save masks
             print(f"> saving masks to location {save_path}")
-            save_image(org_mask.numpy(), 'original_mask', save_path)
-            save_image(target_mask.numpy(), 'target_mask', save_path)
+            # TODO: change to dataset specific loading
+            # save_image(org_mask.numpy(), 'original_mask', save_path)
+            # save_image(target_mask.numpy(), 'target_mask', save_path)
+            dec_org_mask = CityscapeDataset.decode_target(org_mask.numpy())
+            dec_target_mask = CityscapeDataset.decode_target(target_mask.numpy())
+            print(f"saving masks. mask size: {dec_org_mask.shape}")
+            save_image(dec_org_mask, 'original_mask', save_path)
+            save_image(dec_target_mask, 'target_mask', save_path)
+
         # Unique classes are needed to simplify prediction loss
         self.unique_classes = unique_class_list
         # Have a look at calculate_pred_loss to see where this is used
@@ -98,20 +124,34 @@ class AdaptiveSegmentationMaskAttack:
         # Get a copy of target mask to use it for stats
         target_mask_numpy = copy.deepcopy(target_mask).numpy()
         # Target mask
-        target_mask = target_mask.float().cuda(self.device_id)
+        target_mask = target_mask.float()
+        target_mask = target_mask.cpu()
+        if not self.use_cpu:
+            target_mask = target_mask.cuda(self.device_id)
 
         # Image to perform the attack on
+        image_to_optimize: torch.Tensor
         image_to_optimize = input_image.unsqueeze(0)
         # Copied version of image for l2 dist
-        org_im_copy = copy.deepcopy(image_to_optimize.cpu()).cuda(self.device_id)
+        org_im_copy = copy.deepcopy(image_to_optimize.cpu())
+        if not self.use_cpu:
+            org_im_copy = org_im_copy.cuda(self.device_id)
+        printed_size = False
         for single_iter in range(total_iter):
             # Put in variable to get grads later on
             # Variable deprecated in later torch: they return tensors instead, and autograd = true as default
-            image_to_optimize = Variable(image_to_optimize.cuda(self.device_id), requires_grad=True)
+            if not self.use_cpu:
+                image_to_optimize = Variable(image_to_optimize.cuda(self.device_id), requires_grad=True)
+            else:
+                image_to_optimize = Variable(image_to_optimize.cpu(), requires_grad=True)
             # image_to_optimize = image_to_optimize.cuda(self.device_id)
 
             # Forward pass
+            out: torch.Tensor
             out = self.model(image_to_optimize)
+            if not printed_size:
+                print(f"size of model output: {out.shape}")
+                printed_size = True
             # Prediction
             pred_out = torch.argmax(out, dim=1).float()
 
@@ -128,6 +168,13 @@ class AdaptiveSegmentationMaskAttack:
             # print(f">>> type of image to optimize: {type(image_to_optimize)} "
             #       f"and its data type {type(image_to_optimize.data)}")
             # print(f"its grad type: {type(image_to_optimize.grad)} and pert_mul type {type(pert_mul)}")
+            perturbed_im: torch.Tensor
+            print(f">>> checking gradient of image to optimize:")
+            int_grad: torch.Tensor
+            int_grad = image_to_optimize.grad
+            int_np_grad = int_grad.numpy()
+            print(f"max of grad: {np.amax(int_np_grad)}")
+            print(f"min of grad: {np.amin(int_np_grad)}")
             perturbed_im = image_to_optimize.data + (image_to_optimize.grad * pert_mul)
             # Do another forward pass to calculate new pert_mul
             perturbed_im_out = self.model(perturbed_im)
@@ -139,24 +186,50 @@ class AdaptiveSegmentationMaskAttack:
 
             # Calculate performance of the attack
             # Similarities
-            iou, pixel_acc = calculate_mask_similarity(perturbed_im_pred, target_mask_numpy)
+            iou, pixel_acc = calculate_multiclass_mask_similarity(perturbed_im_pred, target_mask_numpy)
             # Distances
             l2_dist, linf_dist = calculate_image_distance(org_im_copy, perturbed_im)
             # Update perturbation multiplier
             pert_mul = self.update_perturbation_multiplier(self.beta, self.tau, iou)
 
             # Update image to optimize and ensure boxt constraint
-            image_to_optimize = perturbed_im.data.clamp_(0, 1)
-            if single_iter % 50 == 0:
+            print(f">>> checking type of perturbed im and im to op")
+            intermediate_tensor = perturbed_im.data
+            """
+            is this clamp(0,1) really not problemistic for multi class segmentation?
+            """
+            # image_to_optimize = perturbed_im.data.clamp_(0, 1)
+            image_to_optimize = perturbed_im.data.clamp(0, 255)
+            print(type(perturbed_im))
+            print(type(image_to_optimize))
+            print(f"checking type of pert_im.data")
+            print(type(perturbed_im.data))
+            print(f">>> checking image to optimize integrity")
+            debug_img: np.ndarray
+            debug_img = image_to_optimize[0].numpy()
+            debug_img = debug_img.transpose((1, 2, 0))
+            # print(debug_img)
+            print(debug_img.shape)
+            print(np.amax(debug_img))
+            print(np.amin(debug_img))
+            if single_iter % 2 == 0:
                 if save_samples:
                     # print(f">>> saving images sample to location: {save_path}")
-                    save_prediction_image(pred_out.cpu().detach().numpy()[0], 'iter_' + str(single_iter),
-                                          save_path + 'prediction')
-                    save_input_image(image_to_optimize.data.cpu().detach().numpy(), 'iter_' + str(single_iter),
+                    # pred_out_np = pred_out.cpu().detach().numpy()[0]
+                    pred_out_np: np.ndarray
+                    pred_out_np = pred_out.cpu().detach().numpy()[0]
+                    pred_out_np = pred_out_np.astype('uint8')
+                    # pred_out_np = pred_out_np.transpose([1, 2, 0])
+                    pred_out_np = CityscapeDataset.decode_target(pred_out_np)
+                    print(pred_out_np.shape)
+                    # print(pred_out_np)
+                    save_image(pred_out_np, 'iter_' + str(single_iter),
+                               save_path + 'prediction')
+                    save_batch_image(image_to_optimize.data.cpu().detach().numpy(), 'iter_' + str(single_iter),
                                      save_path + 'modified_image')
-                    save_image_difference(image_to_optimize.data.cpu().detach().numpy(),
-                                          org_im_copy.data.cpu().detach().numpy(),
-                                          'iter_' + str(single_iter), save_path + 'added_perturbation')
+                    save_batch_image_difference(image_to_optimize.data.cpu().detach().numpy(),
+                                                org_im_copy.data.cpu().detach().numpy(),
+                                                'iter_' + str(single_iter), save_path + 'added_perturbation')
                 if verbose:
                     print('Iter:', single_iter, '\tIOU Overlap:', iou,
                           '\tPixel Accuracy:', pixel_acc,
