@@ -4,6 +4,8 @@
 @article: Impact of Adversarial Examples on Deep Learning Models for Biomedical Image Segmentation
 @conference: MICCAI-19
 """
+from __future__ import annotations
+
 import numpy as np
 from PIL import Image
 import os
@@ -31,6 +33,7 @@ def save_input_image(modified_im, im_name, folder_name='result_images', save_fla
 def save_batch_image(modified_im, im_name, folder_name='result_images', save_flag=True, normalize=True):
     """
     Discretizes 0-255 (real) image from 0-1 normalized image
+    TODO: ...normalized?
 
     assume input is in [batch, channel, h, w] shape
     """
@@ -94,7 +97,7 @@ def save_batch_image_difference(org_image, perturbed_image, im_name, folder_name
     diff_min = np.min(diff)
     diff = np.clip((diff - diff_min) / (diff_max - diff_min), 0, 254)
     # Enhance x 120, modify this according to your needs
-    diff = diff * 1
+    diff = diff * 120
     diff = diff.astype('uint8')
     save_image(diff, im_name, folder_name)
 
@@ -149,7 +152,9 @@ def calculate_binary_mask_similarity(mask1: np.ndarray, mask2: np.ndarray):
     return iou, pixel_acc
 
 
-def calculate_multiclass_mask_similarity(mask1_raw: [np.ndarray, torch.Tensor], mask2_raw: [np.ndarray, torch.Tensor]):
+def calculate_multiclass_mask_similarity(mask1_raw: np.ndarray | torch.Tensor,
+                                         mask2_raw: np.ndarray | torch.Tensor,
+                                         target_classes: list | None = None):
     """
     Calculates IOU and pixel accuracy between two masks
     """
@@ -162,21 +167,29 @@ def calculate_multiclass_mask_similarity(mask1_raw: [np.ndarray, torch.Tensor], 
         mask2 = mask2_raw
     else:
         mask2 = mask2_raw.numpy()
-
-    # Calculate IoU; calculate as nparr boolean mask
-    # for multiclass, this is average of IOU of each class
     m1_uniq = np.unique(mask1)
     m2_uniq = np.unique(mask2)
-    if isinstance(m1_uniq, np.ndarray):
-        m1_uniq_iter = set(m1_uniq.flatten())
+    print(f"unique m1 elem: {m1_uniq}")
+    print(f"unique m2 elem: {m2_uniq}")
+
+    if target_classes is None:
+        # Calculate IoU; calculate as nparr boolean mask
+        # for multiclass, this is average of IOU of each class
+        if isinstance(m1_uniq, np.ndarray):
+            m1_uniq_iter = set(m1_uniq.flatten())
+        else:
+            m1_uniq_iter = set(m1_uniq)
+        if isinstance(m1_uniq, np.ndarray):
+            m2_uniq_iter = set(m2_uniq.flatten())
+        else:
+            m2_uniq_iter = set(m2_uniq)
+        # only counts classes that both masks have
+
+        uniq_set = m1_uniq_iter.intersection(m2_uniq_iter)
+        print(f"calculating for all intersected classes of two masks: {uniq_set}")
     else:
-        m1_uniq_iter = set(m1_uniq)
-    if isinstance(m1_uniq, np.ndarray):
-        m2_uniq_iter = set(m2_uniq.flatten())
-    else:
-        m2_uniq_iter = set(m2_uniq)
-    # only counts classes that both masks have
-    uniq_set = m1_uniq_iter.intersection(m2_uniq_iter)
+        print(f"calculating for specified unique class list: {target_classes}")
+        uniq_set = target_classes
     accumulated_iou = 0
 
     for elem in uniq_set:
@@ -197,7 +210,18 @@ def calculate_multiclass_mask_similarity(mask1_raw: [np.ndarray, torch.Tensor], 
     average_iou = accumulated_iou / len(uniq_set)
 
     # Calculate pixel accuracy
-    correct_pixels = (mask1 == mask2)
+    if target_classes is not None:
+        m1c = copy.deepcopy(mask1)
+        m2c = copy.deepcopy(mask2)
+        for elem in target_classes:
+            m1c[m1c == elem] = 1
+            m2c[m2c == elem] = 1
+        m1c[m1c != 1] = 0
+        m2c[m2c != 1] = 0
+    else:
+        m1c = mask1
+        m2c = mask2
+    correct_pixels = (m1c == m2c)
     correct_pixels: np.ndarray
     pixel_acc = np.sum(correct_pixels) / (correct_pixels.shape[0] * correct_pixels.shape[1])
     return average_iou, pixel_acc

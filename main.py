@@ -28,7 +28,7 @@ if __name__ == '__main__':
     # model = load_model(sys.argv[1])
     model.eval()
     model.cpu()
-    model.cuda(DEVICE_ID)
+    # model.cuda(DEVICE_ID)
     print(f"device of net (by first layer parameter): {next(model.parameters()).device}")
 
     # Attack parameters
@@ -41,7 +41,7 @@ if __name__ == '__main__':
     # print(mask2)
 
     # Perform attack
-    adaptive_attack = AdaptiveSegmentationMaskAttack(DEVICE_ID, model, tau, beta)
+    adaptive_attack = AdaptiveSegmentationMaskAttack(DEVICE_ID, model, tau, beta, use_cpu=True)
     """
         def perform_attack(self, input_image, org_mask, target_mask, unique_class_list,
                        total_iter=2501, save_samples=True, save_path='../adv_results/', verbose=True):
@@ -51,4 +51,5 @@ if __name__ == '__main__':
                                    mask2,
                                    mask1,
                                    unique_class_list=[0, 1],
-                                   total_iter=1500)
+                                   total_iter=1500,
+                                   save_path='adv_results/')

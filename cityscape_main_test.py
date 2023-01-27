@@ -7,11 +7,13 @@
 import collections
 
 import numpy as np
+import torch
+from PIL import Image
 
 import network._deeplab
 # In-repo imports
 from cityscape_dataset import CityscapeDataset
-from helper_functions import load_model
+from helper_functions import load_model, save_image
 from adaptive_attack import AdaptiveSegmentationMaskAttack
 import torch.nn as nn
 
@@ -19,12 +21,16 @@ USE_CPU = True
 
 if __name__ == '__main__':
 
-
     # Glaucoma dataset
     cityscape_dataset = CityscapeDataset(
-        '/home/peizhu/PycharmProjects/adaptive-segmentation-mask-attack/data/cityscape/image',
-        '/home/peizhu/PycharmProjects/adaptive-segmentation-mask-attack/data/cityscape/mask'
+        image_path='/home/peizhu/PycharmProjects/adaptive-segmentation-mask-attack/data/cityscape/image',
+        mask_path='/home/peizhu/PycharmProjects/adaptive-segmentation-mask-attack/data/cityscape/mask'
     )
+    # cityscape_dataset = CityscapeDataset(
+    #     image_path= '/home/peizhu/PycharmProjects/adaptive-segmentation-mask-attack/data/cityscape_single_eg2/image',
+    #     mask_path='/home/peizhu/PycharmProjects/adaptive-segmentation-mask-attack/data/cityscape_single_eg2/mask'
+    # )
+
     # GPU parameters
     DEVICE_ID = 0
 
@@ -38,17 +44,17 @@ if __name__ == '__main__':
     """
     argv[1]: path to model to load
     """
-    print(f"type of read model: {type(model)}")
+    # print(f"type of read model: {type(model)}")
     if isinstance(model_dict, dict):
-        print(f"len of model: {len(model_dict)}")
+        # print(f"len of model: {len(model_dict)}")
         layerwise_len = ""
         for k in model_dict.keys():
             elem = model_dict[k]
             try:
-                print(f"got type with len(): {type(elem)} with key {k}")
+                # print(f"got type with len(): {type(elem)} with key {k}")
                 # layerwise_len += str(len(elem)) + ", "
                 if isinstance(elem, np.float64) or isinstance(elem, int):
-                    print(elem)
+                    # print(elem)
                     layerwise_len += "1, "
                 elif isinstance(elem, dict) or isinstance(elem, collections.OrderedDict):
                     cur_stream = "["
@@ -62,8 +68,9 @@ if __name__ == '__main__':
                 else:
                     raise RuntimeError(f"unexpected type in model dict elem: {type(elem)}")
             except TypeError:
-                print(f"got type without len() : {type(elem)}")
+                # print(f"got type without len() : {type(elem)}")
                 layerwise_len += "1, "
+        # print(f"key of model dict: {model_dict.keys()}")
         # print(f"len of each layer: {layerwise_len}")
         model.load_state_dict(model_dict['model_state'])
         print(f"loaded model weights to model.")
@@ -80,14 +87,35 @@ if __name__ == '__main__':
     print(f"device of net (by first layer parameter): {next(model.parameters()).device}")
 
     # Attack parameters
-    tau = 1e-7
-    beta = 1e-6
+    tau = 2e-7
+    beta = 4e-6
+    # vanishing_class = 13
+    vanishing_class = None
 
     # Read images
     """hardcoded static attack"""
     im_name1, im1, mask1 = cityscape_dataset[0]
     im_name2, im2, mask2 = cityscape_dataset[1]
+
+    print(f"mmmmm model out test:")
+    im1_ts = im1
+    im1_ts = torch.unsqueeze(im1_ts, 0)
+    out = model(im1_ts)
+    pred_out = torch.argmax(out, dim=1)
+    pred_out = torch.squeeze(pred_out)
+    pred_out = pred_out.numpy()
+    pred_out = CityscapeDataset.decode_target(pred_out)
+    save_image(pred_out, "model_out_test", "/home/peizhu/PycharmProjects/adaptive-segmentation-mask-attack")
+    # out_img = Image.fromarray(pred_out)
+    # out_img.save("/des")
+    print(f"mmmmm model out saved.")
+
     # print(mask2)
+    if vanishing_class is not None:
+        mask1[mask1 != vanishing_class] = 0
+        mask1[mask1 == vanishing_class] = vanishing_class
+        mask2[mask2 != vanishing_class] = 0
+        mask2[mask2 == vanishing_class] = vanishing_class
 
     # Perform attack
     adaptive_attack = AdaptiveSegmentationMaskAttack(DEVICE_ID, model, tau, beta, use_cpu=USE_CPU)
@@ -100,17 +128,47 @@ if __name__ == '__main__':
     # cannot normalize: need index to access model hierarchy
     # TODO: normalize to [0,1]and then decode to [0,19] is also an option
     m1list = np.unique(mask1.numpy())
-    m1set = CityscapeDataset.encode_full_class_array(m1list)
+    print(f"mask1 unique check in main: {np.unique(m1list)}")
+    # already encoded in dataset. I am a fool. don't encode again :(
+    # m1set = CityscapeDataset.encode_full_class_array(m1list)
+    m1set = set(m1list)
+    # print(f"mask1 set after dataset encoding: {m1set}")
     # kick out valid but out of training 255 label
-    m1set.remove(255)
+    try:
+        m1set.remove(255)
+    except KeyError:
+        pass
     # m1set = CityscapeDataset.normalize_label(m1set)
     m2list = np.unique(mask2.numpy())
-    m2set = CityscapeDataset.encode_full_class_array(m2list)
+    print(f"mask2 unique check in main: {np.unique(m2list)}")
+    # m2set = CityscapeDataset.encode_full_class_array(m2list)
+    m2set = set(m2list)
     # m2set = CityscapeDataset.normalize_label(m2set)
-    m2set.remove(255)
+    try:
+        m2set.remove(255)
+    except KeyError:
+        pass
 
+    # adaptive_attack.perform_attack(im2,
+    #                                mask2,
+    #                                mask1,
+    #                                unique_class_list=list(set().union(m1set, m2set)),
+    #                                total_iter=200)
+
+    # adaptive_attack.perform_attack(im2,
+    #                                mask2,
+    #                                mask1,
+    #                                unique_class_list=[13],
+    #                                total_iter=200)
+    # adaptive_attack.perform_attack(im2,
+    #                                mask2,
+    #                                mask1,
+    #                                unique_class_list=[0, vanishing_class],
+    #                                total_iter=200)
     adaptive_attack.perform_attack(im2,
                                    mask2,
                                    mask1,
-                                   unique_class_list=list(set().union(m1set, m2set)),
+                                   unique_class_list=[0, 7, 13],
                                    total_iter=200)
+
+

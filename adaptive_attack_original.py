@@ -4,18 +4,14 @@
 @article: Impact of Adversarial Examples on Deep Learning Models for Biomedical Image Segmentation
 @conference: MICCAI-19
 """
-import copy
 import random
-random.seed(4)
+
 # Torch imports
-import torch
 from torch.autograd import Variable
 # In-repo imports
-from helper_functions import (save_prediction_image,
-                              save_input_image,
-                              save_image_difference,
-                              calculate_binary_mask_similarity,
-                              calculate_image_distance)
+from helper_functions import *
+
+random.seed(4)
 
 
 class AdaptiveSegmentationMaskAttack:
@@ -29,7 +25,7 @@ class AdaptiveSegmentationMaskAttack:
         return beta * iou + tau
 
     def calculate_l2_loss(self, x, y):
-        loss = (x - y)**2
+        loss = (x - y) ** 2
         for a in reversed(range(1, loss.dim())):
             loss = loss.sum(a, keepdim=False)
         loss = loss.sum()
@@ -45,15 +41,15 @@ class AdaptiveSegmentationMaskAttack:
 
             # \mathds{1}_{\{\mathbf{Y}^{A} \, =\, c\}}:
             optimization_mask = copy.deepcopy(target_mask)
-            optimization_mask[optimization_mask != single_class] = self. temporary_class_id
+            optimization_mask[optimization_mask != single_class] = self.temporary_class_id
             optimization_mask[optimization_mask == single_class] = 1
-            optimization_mask[optimization_mask == self. temporary_class_id] = 0
+            optimization_mask[optimization_mask == self.temporary_class_id] = 0
 
             # \mathds{1}_{\{\arg \max_M(g(\theta, \mathbf{X}_n)) \, \neq \, c\}}:
             prediction_mask = copy.deepcopy(pred_out)[0]
-            prediction_mask[prediction_mask != single_class] = self. temporary_class_id
+            prediction_mask[prediction_mask != single_class] = self.temporary_class_id
             prediction_mask[prediction_mask == single_class] = 0
-            prediction_mask[prediction_mask == self. temporary_class_id] = 1
+            prediction_mask[prediction_mask == self.temporary_class_id] = 1
 
             # Calculate channel loss
             channel_loss = torch.sum(out_channel * optimization_mask * prediction_mask)
@@ -70,7 +66,7 @@ class AdaptiveSegmentationMaskAttack:
         # Unique classes are needed to simplify prediction loss
         self.unique_classes = unique_class_list
         # Have a look at calculate_pred_loss to see where this is used
-        self. temporary_class_id = random.randint(0, 999)
+        self.temporary_class_id = random.randint(0, 999)
         while self.temporary_class_id in self.unique_classes:
             self.temporary_class_id = random.randint(0, 999)
 
@@ -124,10 +120,13 @@ class AdaptiveSegmentationMaskAttack:
             image_to_optimize = perturbed_im.data.clamp_(0, 1)
             if single_iter % 20 == 0:
                 if save_samples:
-                    save_prediction_image(pred_out.cpu().detach().numpy()[0], 'iter_' + str(single_iter), save_path+'prediction')
-                    save_input_image(image_to_optimize.data.cpu().detach().numpy(), 'iter_' + str(single_iter), save_path+'modified_image')
-                    save_image_difference(image_to_optimize.data.cpu().detach().numpy(), org_im_copy.data.cpu().detach().numpy(),
-                                          'iter_' + str(single_iter), save_path+'added_perturbation')
+                    save_prediction_image(pred_out.cpu().detach().numpy()[0], 'iter_' + str(single_iter),
+                                          save_path + 'prediction')
+                    save_input_image(image_to_optimize.data.cpu().detach().numpy(), 'iter_' + str(single_iter),
+                                     save_path + 'modified_image')
+                    save_image_difference(image_to_optimize.data.cpu().detach().numpy(),
+                                          org_im_copy.data.cpu().detach().numpy(),
+                                          'iter_' + str(single_iter), save_path + 'added_perturbation')
                 if verbose:
                     print('Iter:', single_iter, '\tIOU Overlap:', iou,
                           '\tPixel Accuracy:', pixel_acc,
