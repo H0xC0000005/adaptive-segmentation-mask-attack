@@ -24,24 +24,31 @@ def save_input_image(modified_im, im_name, folder_name='result_images', save_fla
     modified_copy[modified_copy > 255] = 255
     modified_copy[modified_copy < 0] = 0
     modified_copy = modified_copy.transpose(1, 2, 0)
-    modified_copy = modified_copy.astype('uint8')
+    # modified_copy = modified_copy.astype('uint8')
     if save_flag:
         save_image(modified_copy, im_name, folder_name)
     return modified_copy
 
 
-def save_batch_image(modified_im, im_name, folder_name='result_images', save_flag=True, normalize=True):
+def save_batch_image(modified_im: np.ndarray, im_name, folder_name='result_images', save_flag=True, normalize=True):
     """
     Discretizes 0-255 (real) image from 0-1 normalized image
     TODO: ...normalized?
 
     assume input is in [batch, channel, h, w] shape
     """
-    modified_copy = copy.deepcopy(modified_im)[0]
+    if modified_im.shape[0] == 1:
+        # batch image, assume batch dim=1
+        modified_copy = copy.deepcopy(modified_im)[0]
+    else:
+        modified_copy = copy.deepcopy(modified_im)
     # from [ch h w] to [h w ch]
-    modified_copy = modified_copy.transpose(1, 2, 0)
-    modified_copy = modified_copy.astype('uint8')
+    if modified_copy.shape[0] in (1, 2, 3):
+        # assume first dim = channel, else don't transform
+        modified_copy = modified_copy.transpose((1, 2, 0))
+
     if save_flag:
+        # modified_copy = modified_copy.astype('uint8')
         save_image(modified_copy, im_name, folder_name, normalize=normalize)
     return modified_copy
 
@@ -56,7 +63,7 @@ def save_binary_prediction_image(pred_out, im_name, folder_name='result_images')
     pred_img = pred_img * 255
     pred_img[pred_img > 127] = 255
     pred_img[pred_img <= 127] = 0
-    pred_img = pred_img.astype('uint8')
+    # pred_img = pred_img.astype('uint8')
     save_image(pred_img, im_name, folder_name)
 
 
@@ -77,11 +84,12 @@ def save_binary_image_difference(org_image, perturbed_image, im_name, folder_nam
     diff = np.clip((diff - diff_min) / (diff_max - diff_min), 0, 1)
     # Enhance x 120, modify this according to your needs
     diff = diff * 30
-    diff = diff.astype('uint8')
+    # diff = diff.astype('uint8')
     save_image(diff, im_name, folder_name)
 
 
-def save_batch_image_difference(org_image, perturbed_image, im_name, folder_name='result_images'):
+def save_batch_image_difference(org_image, perturbed_image, im_name, folder_name='result_images', normalize=True,
+                                enhance_multiplier=255):
     """
     Finds the absolute difference between two images in terms of grayscale palette
     """
@@ -92,20 +100,22 @@ def save_batch_image_difference(org_image, perturbed_image, im_name, folder_name
     diff = np.abs(im1 - im2)
     # Sum over channel, not needed for colourful saves
     # diff = np.sum(diff, axis=2)
-    # Normalize
+    # Normalize. 0-1 min-max normalization
     diff_max = np.max(diff)
     diff_min = np.min(diff)
-    diff = np.clip((diff - diff_min) / (diff_max - diff_min), 0, 254)
-    # Enhance x 120, modify this according to your needs
-    diff = diff * 120
-    diff = diff.astype('uint8')
-    save_image(diff, im_name, folder_name)
+    if diff_max != diff_min:
+        diff = np.clip((diff - diff_min) / (diff_max - diff_min), 0, 1)
+    # Enhance x 255 to get full scale image
+    diff = diff * enhance_multiplier
+    # diff = diff.astype('uint8')
+    save_image(diff, im_name, folder_name, normalize=normalize)
 
 
-def save_image(im_as_arr: np.ndarray, im_name, folder_name, normalize=True):
+def save_image(im_as_arr: np.ndarray | torch.Tensor, im_name, folder_name, normalize=True):
     if not os.path.exists(folder_name):
         os.makedirs(folder_name)
-
+    if isinstance(im_as_arr, torch.Tensor):
+        im_as_arr = im_as_arr.numpy()
     # im_as_arr = im_as_arr.copy()
     image_name_with_path = folder_name + '/' + str(im_name) + '.png'
     # astype() returns a copy but not view so it's safe
@@ -113,7 +123,10 @@ def save_image(im_as_arr: np.ndarray, im_name, folder_name, normalize=True):
     if normalize:
         # this should also be valid for colour image as this gets its max channel
         # print(im_as_arr.shape)
-        im_as_arr = im_as_arr / (np.amax(im_as_arr) - np.amin(im_as_arr)) * 254
+        imax = np.amax(im_as_arr)
+        imin = np.amin(im_as_arr)
+        if imax != imin:
+            im_as_arr = im_as_arr / (imax - imin) * 254
     im_as_arr = im_as_arr.astype('uint8')
     # print(type(im_as_arr))
     # print(np.unique(im_as_arr))
@@ -169,9 +182,9 @@ def calculate_multiclass_mask_similarity(mask1_raw: np.ndarray | torch.Tensor,
         mask2 = mask2_raw.numpy()
     m1_uniq = np.unique(mask1)
     m2_uniq = np.unique(mask2)
-    print(f"unique m1 elem: {m1_uniq}")
-    print(f"unique m2 elem: {m2_uniq}")
-
+    # print(f"unique m1 elem: {m1_uniq}")
+    # print(f"unique m2 elem: {m2_uniq}")
+    #
     if target_classes is None:
         # Calculate IoU; calculate as nparr boolean mask
         # for multiclass, this is average of IOU of each class
@@ -186,7 +199,7 @@ def calculate_multiclass_mask_similarity(mask1_raw: np.ndarray | torch.Tensor,
         # only counts classes that both masks have
 
         uniq_set = m1_uniq_iter.intersection(m2_uniq_iter)
-        print(f"calculating for all intersected classes of two masks: {uniq_set}")
+        # print(f"calculating for all intersected classes of two masks: {uniq_set}")
     else:
         print(f"calculating for specified unique class list: {target_classes}")
         uniq_set = target_classes

@@ -293,10 +293,27 @@ class ExtToTensor(object):
         Returns:
             Tensor: Converted image and label
         """
-        if self.normalize:
-            return F.to_tensor(pic), torch.from_numpy(np.array(lbl, dtype=self.target_type))
+        if isinstance(pic, torch.Tensor):
+            res_pic = pic
+            # return pic, torch.from_numpy(np.array(lbl, dtype=self.target_type))
+        elif self.normalize:
+            # print(pic.shape)
+
+            # this stuff do transform((2,0,1)) on its own
+            res_pic = F.to_tensor(pic)
+
+            # print(res_pic.size())
+            # return F.to_tensor(pic), torch.from_numpy(np.array(lbl, dtype=self.target_type))
         else:
-            return torch.from_numpy(np.array(pic, dtype=np.float32).transpose(2, 0, 1)), torch.from_numpy(
+            # res_pic = torch.from_numpy(np.array(pic, dtype=np.float32).transpose(2, 0, 1))
+            res_pic = np.array(pic, dtype=np.float32)
+            if res_pic.shape[0] not in (1, 2, 3, 4):
+                res_pic = res_pic.transpose((2, 0, 1))
+            res_pic = torch.from_numpy(res_pic)
+        if lbl is None:
+            return res_pic, lbl
+        else:
+            return res_pic, torch.from_numpy(
                 np.array(lbl, dtype=self.target_type))
 
     def __repr__(self):
@@ -327,6 +344,34 @@ class ExtNormalize(object):
             Tensor: Unchanged Tensor label
         """
         return F.normalize(tensor, self.mean, self.std), lbl
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
+
+
+class ExtUnNormalize(object):
+    def __init__(self, mean, std):
+        self.mean = mean
+        self.std = std
+        self.inv_mean = []
+        for val in self.mean:
+            self.inv_mean.append(- val)
+        self.zero_mean = [0] * len(mean)
+        self.inv_std = []
+        for val in self.std:
+            self.inv_std.append(1 / val)
+        self.one_std = [1] * len(std)
+
+    def __call__(self, tensor, lbl=None):
+        """
+        Args:
+            tensor (Tensor): Tensor image of size (C, H, W) to be normalized.
+        Returns:
+            Tensor: Normalized image.
+        """
+        ts = F.normalize(tensor, mean=self.zero_mean, std=self.inv_std)
+        ts = F.normalize(ts, mean=self.inv_mean, std=self.one_std)
+        return ts, lbl
 
     def __repr__(self):
         return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)

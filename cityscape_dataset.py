@@ -82,7 +82,10 @@ class CityscapeDataset(Dataset):
                         std=[0.229, 0.224, 0.225]),
     ])
 
-    def __init__(self, image_path, mask_path, *, transform=val_transform):
+    inverse_val_transform = et.ExtCompose([et.ExtUnNormalize(mean=[0.485, 0.456, 0.406],
+                                                             std=[0.229, 0.224, 0.225])])
+
+    def __init__(self, image_path, mask_path, *, transform=None, inv_transform=None):
         super(CityscapeDataset, self).__init__()
         # paths to all images and masks
         self.mask_path = mask_path
@@ -92,7 +95,15 @@ class CityscapeDataset(Dataset):
             print(f"specified transform : {transform}")
         else:
             print(f"transform not specified")
-        self.transform = transform
+        if transform is None:
+            self.transform = CityscapeDataset.val_transform
+            self.inv_transform = CityscapeDataset.inverse_val_transform
+        else:
+            if transform is not None and inv_transform is not None:
+                self.transform = transform
+                self.inv_transform = inv_transform
+            else:
+                raise RuntimeError(f"transform and inv_transform are not all specified.")
 
         print('Dataset size:', self.data_len)
 
@@ -127,8 +138,18 @@ class CityscapeDataset(Dataset):
         norm_set = {elem / 19 * normalize_range for elem in label_set}
         return norm_set
 
-    def __getitem__(self, index) -> (str, torch.Tensor, torch.Tensor):
+    @classmethod
+    def rgb_to_train_image(cls, img: typing.Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
+        result, _ = cls.val_transform(img, None)
+        return result
 
+    @classmethod
+    def train_image_to_rgb(cls, img: torch.Tensor) -> torch.Tensor:
+        result, _ = cls.inverse_val_transform(img, None)
+        return result
+
+    def __getitem__(self, index) -> (str, torch.Tensor, torch.Tensor):
+        DEBUG = True
         """
 
         image = Image.open(self.images[index]).convert('RGB')
@@ -146,46 +167,19 @@ class CityscapeDataset(Dataset):
         # Read image
         im_as_im = Image.open(image_path)
 
-        # im_as_np = np.asarray(im_as_im)
-        # # im_as_np.setflags(write=True)
-        # temp = copy.deepcopy(im_as_np)
-        # im_as_np = temp
-        # im_as_np.setflags(write=True)
-        # # transpose tf style colour channel as -1 dim to torch style as 0 dim
-        # if im_as_np.shape[2] in (1, 2, 3, 4):
-        #     im_as_np = im_as_np.transpose((2, 0, 1))
-        # # Normalize image
-        # """ is this normalize really necessary or correct?"""
-        # # im_as_np = im_as_np / 255
-        # # Convert numpy array to tensor
-        # im_as_tensor: torch.Tensor
-        # im_as_tensor = torch.from_numpy(im_as_np).float()
-
         # --- Mask operations --- #
         # Read mask
         msk_as_im = Image.open(self.mask_path + '/' + image_name)
-        # msk_as_np = np.array(msk_as_im)
-        #
-        # # trick to convert 31 class in cityscapes to repo training scheme with 19 classes
-        # msk_as_np = self.encode_target(msk_as_np)
-
-        # WARNING: magic number 19: 19 classes used in deeplabv3 cityscape model to normalize mask
-        # msk_as_np = msk_as_np / 19
-
-        """
-        # Sanity check
-        img2 = Image.fromarray(msk_as_np)
-        img2.show()
-        """
-
-        # keep mask label as the same for cityscape
-        # msk_as_np = msk_as_np.copy()
-        # a trick that torch doesn't support r-only tensor from nparr. deep copy to make it writable
-        # msk_as_np.setflags(write=True)
-        # msk_as_tensor = torch.from_numpy(msk_as_np).long()  # Convert numpy array to tensor
+        if DEBUG:
+            db = np.array(im_as_im)
+            print(f"before transfm, max of image: {np.amax(db)}, min of image: {np.amin(db)}")
+            # print(f"unique elem of this image: {np.unique(db)}")
 
         if self.transform is not None:
+            # before: 0:255
+            # after: -2.1-2.6
             im_as_tensor, msk_as_tensor = self.transform(im_as_im, msk_as_im)
+            # print(np.unique(im_as_tensor.numpy()))
         else:
             im_as_tensor = torch.from_numpy(np.array(im_as_im))
             msk_as_tensor = torch.from_numpy(np.array(msk_as_im))
@@ -193,14 +187,15 @@ class CityscapeDataset(Dataset):
         msk_as_np = self.encode_target(msk_as_tensor)
         msk_as_tensor = torch.from_numpy(msk_as_np)
 
-        DEBUG = True
         if DEBUG:
             # Save masks
-            print(f"type of im, msk: {type(im_as_tensor), type(msk_as_tensor)}")
+            # print(f"type of im, msk: {type(im_as_tensor), type(msk_as_tensor)}")
             msk_as_np = msk_as_tensor.numpy()
             print(f"< in dataset saving masks to location "
                   f"/home/peizhu/PycharmProjects/adaptive-segmentation-mask-attack/")
             print(f"unique elem in this mask: {np.unique(msk_as_np)}")
+            db = im_as_tensor.numpy()
+            print(f"max of image: {np.amax(db)}, min of image: {np.amin(db)}")
             save_image(msk_as_tensor.numpy(), 'mask_debug', "/home/peizhu/PycharmProjects/adaptive"
                                                             "-segmentation-mask-attack/")
         return image_name, im_as_tensor, msk_as_tensor

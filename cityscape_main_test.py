@@ -5,6 +5,7 @@
 @conference: MICCAI-19
 """
 import collections
+import copy
 
 import numpy as np
 import torch
@@ -18,6 +19,7 @@ from adaptive_attack import AdaptiveSegmentationMaskAttack
 import torch.nn as nn
 
 USE_CPU = True
+# torch.cuda.set_enabled_lms(True)
 
 if __name__ == '__main__':
 
@@ -87,8 +89,8 @@ if __name__ == '__main__':
     print(f"device of net (by first layer parameter): {next(model.parameters()).device}")
 
     # Attack parameters
-    tau = 2e-7
-    beta = 4e-6
+    tau = 1e-7
+    beta = 1e-6
     # vanishing_class = 13
     vanishing_class = None
 
@@ -165,10 +167,28 @@ if __name__ == '__main__':
     #                                mask1,
     #                                unique_class_list=[0, vanishing_class],
     #                                total_iter=200)
+    # adaptive_attack.perform_attack(im2,
+    #                                mask2,
+    #                                mask1,
+    #                                unique_class_list=[0, 7, 11, 13],
+    #                                total_iter=200,
+    #                                verbose=True)
+    # mask1 = np.ones(mask1.shape, dtype='uint8')
+    # print(f"mask1 created with shape {mask1.shape}")
+    # mask1 = torch.from_numpy(mask1)
+    # adaptive_attack.perform_attack(im2,
+    #                                mask2,
+    #                                mask1,
+    #                                unique_class_list=[0, 1, 13],
+    #                                total_iter=200,
+    #                                verbose=False)
+    mask_2cp = copy.deepcopy(mask2)
+    mask_2cp[mask_2cp == 13] = 1
+    # mask_2cp[0:2, 0:2] = 13
     adaptive_attack.perform_attack(im2,
                                    mask2,
-                                   mask1,
-                                   unique_class_list=[0, 7, 13],
-                                   total_iter=200)
-
-
+                                   None,
+                                   unique_class_list=[0, 13],
+                                   loss_metric="l2",
+                                   total_iter=200,
+                                   verbose=False)
