@@ -156,12 +156,14 @@ if __name__ == '__main__':
     #                                mask1,
     #                                unique_class_list=list(set().union(m1set, m2set)),
     #                                total_iter=200)
-
-    # adaptive_attack.perform_attack(im2,
-    #                                mask2,
-    #                                mask1,
-    #                                unique_class_list=[13],
-    #                                total_iter=200)
+    mask1 = copy.deepcopy(mask2)
+    mask1[mask1 == 13] = 2
+    adaptive_attack.perform_attack(im2,
+                                   mask2,
+                                   mask1,
+                                   loss_metric="l1",
+                                   unique_class_list=[2],
+                                   total_iter=200)
     # adaptive_attack.perform_attack(im2,
     #                                mask2,
     #                                mask1,
@@ -182,13 +184,13 @@ if __name__ == '__main__':
     #                                unique_class_list=[0, 1, 13],
     #                                total_iter=200,
     #                                verbose=False)
-    mask_2cp = copy.deepcopy(mask2)
-    mask_2cp[mask_2cp == 13] = 1
-    # mask_2cp[0:2, 0:2] = 13
-    adaptive_attack.perform_attack(im2,
-                                   mask2,
-                                   None,
-                                   unique_class_list=[0, 13],
-                                   loss_metric="l2",
-                                   total_iter=200,
-                                   verbose=False)
+    # mask_2cp = copy.deepcopy(mask2)
+    # mask_2cp[mask_2cp == 13] = 1
+    # # mask_2cp[0:2, 0:2] = 13
+    # adaptive_attack.perform_attack(im2,
+    #                                mask2,
+    #                                None,
+    #                                unique_class_list=[0, 13],
+    #                                loss_metric="l1",
+    #                                total_iter=200,
+    #                                verbose=False)
