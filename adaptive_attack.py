@@ -69,7 +69,7 @@ class AdaptiveSegmentationMaskAttack:
             diff = diff.numpy()
         if not isinstance(diff, np.ndarray):
             raise RuntimeError(f"diff is supposed to be nparr but get {type(diff)}")
-        max_loss = np.amax(diff)
+        max_loss = np.abs(np.amax(diff))
         return max_loss
 
     @staticmethod
@@ -84,7 +84,7 @@ class AdaptiveSegmentationMaskAttack:
 
     @staticmethod
     def calculate_l1_loss(x, y):
-        loss = (x - y)
+        loss = torch.abs(x - y)
         # print(loss)
         # print(f"min of loss: {np.amin(loss)}, max of loss: {np.amax(loss)}")
         for a in reversed(range(1, loss.dim())):
@@ -147,9 +147,8 @@ class AdaptiveSegmentationMaskAttack:
 
             # get specific out channel pred
             out_channel = model_output[0][single_class]
-
-            # same process inversed for pred
             prediction_mask = copy.deepcopy(pred_out)[0]
+            # if target_class is None:
             prediction_mask[prediction_mask != single_class] = self.temporary_class_id
             prediction_mask[prediction_mask == single_class] = 1
             prediction_mask[prediction_mask == self.temporary_class_id] = 0
@@ -185,10 +184,10 @@ class AdaptiveSegmentationMaskAttack:
         else:
             raise ValueError("in perform attack, unique class list is empty")
         target_classes = unique_class_list.copy()
-        try:
-            target_classes.remove(0)
-        except ValueError:
-            pass
+        # try:
+        #     target_classes.remove(0)
+        # except ValueError:
+        #     pass
         verbose_print(f"DEBUG: type of org mask: {type(org_mask)}, size of origin mask: {org_mask.numpy().shape}, "
                       f"unique of org mask: {np.unique(org_mask.numpy())}")
         verbose_print(f"DEBUG: type of tar mask: {type(target_mask)}")
@@ -264,22 +263,23 @@ class AdaptiveSegmentationMaskAttack:
 
             # dist Loss
             dist_loss = self.calculate_loss_facade(org_im_copy, image_to_optimize, loss_metric)
+            print(dist_loss)
             if target_mask is not None:
                 # Prediction loss
                 pred_loss = self.calculate_target_pred_loss(target_mask, pred_out, out, target_class=target_classes)
             else:
                 pred_loss = self.calculate_untargeted_pred_loss(pred_out, out, original_class=target_classes)
             # Total loss
-            pred_loss_weight = 10
-            l2_loss_weight = 1
+            pred_loss_weight = 1
+            dist_loss_weight = 4
             if target_mask is not None:
-                out_grad = torch.sum(pred_loss_weight * pred_loss - l2_loss_weight * dist_loss)
+                out_grad = torch.sum(pred_loss_weight * pred_loss - dist_loss_weight * dist_loss)
             else:
-                out_grad = torch.sum(- pred_loss_weight * pred_loss - l2_loss_weight * dist_loss)
+                out_grad = torch.sum(- pred_loss_weight * pred_loss - dist_loss_weight * dist_loss)
 
-            verbose_print(f"OOO out grad dimension: {out_grad.shape}")
+            # verbose_print(f"OOO out grad dimension: {out_grad.shape}")
             verbose_print(f"OOO out grad : {out_grad}")
-            verbose_print(f"OOO out l2 loss: {dist_loss}")
+            verbose_print(f"OOO out L-x loss: {dist_loss}")
             verbose_print(f"OOO out pred loss: {pred_loss}")
             # Backward pass
             out_grad.backward()
