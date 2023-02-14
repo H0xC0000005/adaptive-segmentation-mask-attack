@@ -171,7 +171,7 @@ def calculate_multiclass_mask_similarity(mask1_raw: np.ndarray | torch.Tensor,
     """
     Calculates IOU and pixel accuracy between two masks
     """
-    print(f">>> calculating IOU of masks")
+    # print(f">>> calculating IOU of masks")
     if isinstance(mask1_raw, np.ndarray):
         mask1 = mask1_raw
     else:
@@ -201,7 +201,7 @@ def calculate_multiclass_mask_similarity(mask1_raw: np.ndarray | torch.Tensor,
         uniq_set = m1_uniq_iter.intersection(m2_uniq_iter)
         # print(f"calculating for all intersected classes of two masks: {uniq_set}")
     else:
-        print(f"calculating for specified unique class list: {target_classes}")
+        # print(f"calculating for specified unique class list: {target_classes}")
         uniq_set = target_classes
     accumulated_iou = 0
 
@@ -218,7 +218,7 @@ def calculate_multiclass_mask_similarity(mask1_raw: np.ndarray | torch.Tensor,
         union_single[union_single > 1] = 1
 
         iou_single = np.sum(intersection_single) / np.sum(union_single)
-        print(f"current single iou: {iou_single} with element {elem}")
+        # print(f"current single iou: {iou_single} with element {elem}")
         accumulated_iou += iou_single
     average_iou = accumulated_iou / len(uniq_set)
 

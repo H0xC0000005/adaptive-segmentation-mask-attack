@@ -55,21 +55,29 @@ class AdaptiveSegmentationMaskAttack:
     def calculate_loss_facade(x, y, metric: str):
         metric2method_mapp = {"l1": AdaptiveSegmentationMaskAttack.calculate_l1_loss,
                               "l2": AdaptiveSegmentationMaskAttack.calculate_l2_loss,
-                              "linf": AdaptiveSegmentationMaskAttack.calculate_linf_loss}
+                              "linf": AdaptiveSegmentationMaskAttack.calculate_linf_loss,
+                              "l0": AdaptiveSegmentationMaskAttack.calculate_l0_loss,
+                              }
         mtr = metric.lower()
         if mtr not in metric2method_mapp:
             raise NotImplementedError(f"specified metric {metric} not implemented. "
                                       f"valid set: {metric2method_mapp.keys()}")
         else:
             return metric2method_mapp[mtr](x, y)
+
+    @staticmethod
+    def calculate_l0_loss(x, y, *, threshold = 1e-6):
+        diff = (x-y)
+        diff = torch.abs(diff)
+        diff[diff > threshold] = 1
+        diff[diff <= threshold] = 0
+        return torch.sum(diff)
+
+
     @staticmethod
     def calculate_linf_loss(x, y):
         diff = (x - y)
-        if isinstance(diff, torch.Tensor):
-            diff = diff.numpy()
-        if not isinstance(diff, np.ndarray):
-            raise RuntimeError(f"diff is supposed to be nparr but get {type(diff)}")
-        max_loss = np.abs(np.amax(diff))
+        max_loss = torch.max(diff)
         return max_loss
 
     @staticmethod
@@ -164,12 +172,14 @@ class AdaptiveSegmentationMaskAttack:
                        org_mask: torch.Tensor,
                        target_mask: torch.Tensor | None,
                        *,
+                       initial_perturbation: torch.Tensor | None = None,
                        loss_metric: str = "l2",
                        unique_class_list: list | set,
                        total_iter=2501,
                        save_samples=True,
-                       save_path='/home/peizhu/PycharmProjects/adaptive-segmentation-mask-attack/adv_results/cityscape_results/',
-                       verbose=True):
+                       save_path='./adv_results/cityscapes_results/',
+                       verbose=True,
+                       report_stat_interval=10):
         print(f">>> performing attack on save path {save_path}.")
 
         def verbose_print(s):
@@ -195,9 +205,6 @@ class AdaptiveSegmentationMaskAttack:
         if save_samples:
             # Save masks
             verbose_print(f"> saving masks to location {save_path}")
-            # TODO: change to dataset specific loading
-            # save_image(org_mask.numpy(), 'original_mask', save_path)
-            # save_image(target_mask.numpy(), 'target_mask', save_path)
             dec_org_mask = CityscapeDataset.decode_target(org_mask.numpy())
             verbose_print(f"saving masks. mask size: {dec_org_mask.shape}")
             save_image(dec_org_mask, 'original_mask', save_path)
@@ -233,7 +240,9 @@ class AdaptiveSegmentationMaskAttack:
         print("VVVV max of im to optimize: ", np.amax(image_to_optimize.numpy()), "shape: ", image_to_optimize.shape)
         # add a bit gaussian noise for stabilization
         noise_variance = 1e-8
-        image_to_optimize = image_to_optimize + (noise_variance ** 0.5) * torch.randn(image_to_optimize.shape)
+        # image_to_optimize = image_to_optimize + (noise_variance ** 0.5) * torch.randn(image_to_optimize.shape)
+        if initial_perturbation is not None:
+            image_to_optimize = image_to_optimize + initial_perturbation
         print("VVVV max of im to optimize: ", np.amax(image_to_optimize.numpy()), "shape: ", image_to_optimize.shape)
         # Copied version of image for l2 dist
         org_im_copy = copy.deepcopy(input_image.cpu())
@@ -263,7 +272,7 @@ class AdaptiveSegmentationMaskAttack:
 
             # dist Loss
             dist_loss = self.calculate_loss_facade(org_im_copy, image_to_optimize, loss_metric)
-            print(dist_loss)
+            # print(dist_loss)
             if target_mask is not None:
                 # Prediction loss
                 pred_loss = self.calculate_target_pred_loss(target_mask, pred_out, out, target_class=target_classes)
@@ -271,7 +280,7 @@ class AdaptiveSegmentationMaskAttack:
                 pred_loss = self.calculate_untargeted_pred_loss(pred_out, out, original_class=target_classes)
             # Total loss
             pred_loss_weight = 1
-            dist_loss_weight = 4
+            dist_loss_weight = 16
             if target_mask is not None:
                 out_grad = torch.sum(pred_loss_weight * pred_loss - dist_loss_weight * dist_loss)
             else:
@@ -289,12 +298,17 @@ class AdaptiveSegmentationMaskAttack:
             #       f"and its data type {type(image_to_optimize.data)}")
             # verbose_print(f"its grad type: {type(image_to_optimize.grad)} and pert_mul type {type(pert_mul)}")
             perturbed_im: torch.Tensor
+
             verbose_print(f">>> checking gradient of image to optimize:")
             int_grad: torch.Tensor
             int_grad = image_to_optimize.grad
-            int_np_grad = int_grad.numpy()
-            verbose_print(f"max of grad: {np.amax(int_np_grad)}")
-            verbose_print(f"min of grad: {np.amin(int_np_grad)}")
+            # int_np_grad = int_grad.numpy()
+            # verbose_print(f"max of grad: {np.amax(int_np_grad)}")
+            # verbose_print(f"min of grad: {np.amin(int_np_grad)}")
+            verbose_print(f"max of grad: {torch.max(int_grad)}")
+            verbose_print(f"min of grad: {torch.max(int_grad)}")
+
+
             perturbed_im = image_to_optimize.data + (image_to_optimize.grad * pert_mul)
             # Do another forward pass to calculate new pert_mul
             perturbed_im_out = self.model(perturbed_im)
@@ -357,15 +371,11 @@ class AdaptiveSegmentationMaskAttack:
             # verbose_print(type(image_to_optimize))
             # verbose_print(f"checking type of pert_im.data")
             # verbose_print(type(perturbed_im.data))
+
             verbose_print(f">>> checking image to optimize integrity")
-            debug_img: np.ndarray
-            debug_img = image_to_optimize[0].numpy()
-            debug_img = debug_img.transpose((1, 2, 0))
-            # verbose_print(debug_img)
-            # verbose_print(debug_img.shape)
-            verbose_print(np.amax(debug_img))
-            verbose_print(np.amin(debug_img))
-            if single_iter % 5 == 0:
+            verbose_print(f"max: {torch.max(image_to_optimize[0])}")
+            verbose_print(f"min: {torch.min(image_to_optimize[0])}")
+            if single_iter % report_stat_interval == 0 or single_iter == total_iter - 1:
                 if save_samples:
                     # print(f">>> saving images sample to location: {save_path}")
                     # pred_out_np = pred_out.cpu().detach().numpy()[0]
