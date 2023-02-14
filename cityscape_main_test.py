@@ -102,20 +102,6 @@ if __name__ == '__main__':
     """hardcoded static attack"""
     im_name1, im1, mask1 = cityscape_dataset[0]
     im_name2, im2, mask2 = cityscape_dataset[1]
-
-    # print(f"mmmmm model out test:")
-    # im1_ts = im1
-    # im1_ts = torch.unsqueeze(im1_ts, 0)
-    # out = model(im1_ts)
-    # pred_out = torch.argmax(out, dim=1)
-    # pred_out = torch.squeeze(pred_out)
-    # pred_out = pred_out.numpy()
-    # pred_out = CityscapeDataset.decode_target(pred_out)
-    # save_image(pred_out, "model_out_test", root)
-    # # out_img = Image.fromarray(pred_out)
-    # # out_img.save("/des")
-    # print(f"mmmmm model out saved.")
-
     # print(mask2)
     if vanishing_class is not None:
         mask1[mask1 != vanishing_class] = 0

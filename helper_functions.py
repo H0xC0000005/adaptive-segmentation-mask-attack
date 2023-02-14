@@ -14,6 +14,17 @@ import copy
 import torch
 
 
+def transpose_torch_to_image(img: np.ndarray | torch.Tensor) -> np.ndarray | torch.Tensor:
+    if img.shape[0] in (1, 2, 3):
+        # assume first dim = channel, else don't transform
+        if isinstance(img, np.ndarray):
+            img = img.transpose((1, 2, 0))
+        else:
+            img = torch.transpose(img, 0, 1)
+            img = torch.transpose(img, 1, 2)
+    return img
+
+
 def save_input_image(modified_im, im_name, folder_name='result_images', save_flag=True):
     """
     Discretizes 0-255 (real) image from 0-1 normalized image
@@ -30,7 +41,12 @@ def save_input_image(modified_im, im_name, folder_name='result_images', save_fla
     return modified_copy
 
 
-def save_batch_image(modified_im: np.ndarray, im_name, folder_name='result_images', save_flag=True, normalize=True):
+def save_batch_image(modified_im: np.ndarray | torch.Tensor,
+                     im_name: str,
+                     folder_name='result_images',
+                     save_flag=True,
+                     normalize=True,
+                     ):
     """
     Discretizes 0-255 (real) image from 0-1 normalized image
     TODO: ...normalized?
@@ -42,12 +58,10 @@ def save_batch_image(modified_im: np.ndarray, im_name, folder_name='result_image
         modified_copy = copy.deepcopy(modified_im)[0]
     else:
         modified_copy = copy.deepcopy(modified_im)
-    # from [ch h w] to [h w ch]
-    if modified_copy.shape[0] in (1, 2, 3):
-        # assume first dim = channel, else don't transform
-        modified_copy = modified_copy.transpose((1, 2, 0))
 
     if save_flag:
+        # from [ch h w] to [h w ch]
+        modified_copy = transpose_torch_to_image(modified_copy)
         # modified_copy = modified_copy.astype('uint8')
         save_image(modified_copy, im_name, folder_name, normalize=normalize)
     return modified_copy
@@ -88,27 +102,48 @@ def save_binary_image_difference(org_image, perturbed_image, im_name, folder_nam
     save_image(diff, im_name, folder_name)
 
 
-def save_batch_image_difference(org_image, perturbed_image, im_name, folder_name='result_images', normalize=True,
-                                enhance_multiplier=255):
+def save_batch_image_difference(org_image: np.ndarray | torch.Tensor,
+                                perturbed_image: np.ndarray | torch.Tensor,
+                                im_name: str | None,
+                                folder_name: str = 'result_images',
+                                normalize=True,
+                                enhance_multiplier=255,
+                                save_flag=True):
     """
     Finds the absolute difference between two images in terms of grayscale palette
     """
+    assert not (save_flag and im_name is None), f"attempt to save without name (im_name == None)"
+    if type(org_image) != type(perturbed_image):
+        raise TypeError(f"in save_batch_image, type of img1 {type(org_image)} doesn't match type of img2:"
+                        f" {type(perturbed_image)}")
+    if isinstance(org_image, torch.Tensor):
+        is_tensor = True
+    else:
+        is_tensor = False
     # Process images
     im1 = save_batch_image(org_image, '', '', save_flag=False)
     im2 = save_batch_image(perturbed_image, '', '', save_flag=False)
     # Find difference
-    diff = np.abs(im1 - im2)
     # Sum over channel, not needed for colourful saves
-    # diff = np.sum(diff, axis=2)
+    if is_tensor:
+        diff = torch.abs(im1 - im2)
+        diff_max = torch.max(diff)
+        diff_min = torch.min(diff)
+    else:
+        diff = np.abs(im1 - im2)
+        diff_max = np.max(diff)
+        diff_min = np.min(diff)
+
     # Normalize. 0-1 min-max normalization
-    diff_max = np.max(diff)
-    diff_min = np.min(diff)
-    if diff_max != diff_min:
-        diff = np.clip((diff - diff_min) / (diff_max - diff_min), 0, 1)
+    if normalize and diff_max != diff_min:
+        diff = (diff - diff_min) / (diff_max - diff_min)
     # Enhance x 255 to get full scale image
-    diff = diff * enhance_multiplier
-    # diff = diff.astype('uint8')
-    save_image(diff, im_name, folder_name, normalize=normalize)
+    if save_flag:
+        diff = diff * enhance_multiplier
+        diff = transpose_torch_to_image(diff)
+        # diff = diff.astype('uint8')
+        save_image(diff, im_name, folder_name, normalize=normalize)
+    return diff
 
 
 def save_image(im_as_arr: np.ndarray | torch.Tensor, im_name, folder_name, normalize=True):

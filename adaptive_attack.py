@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import random
 import gc
+import time
 import typing
 from os.path import isfile
 
@@ -17,11 +18,13 @@ from torch.autograd import Variable
 
 # from torch.autograd import Variable
 # In-repo imports
+from torch.utils.data import Dataset
+
 from helper_functions import *
 from cityscape_dataset import CityscapeDataset
 import os
 
-random.seed(4)
+# random.seed(4)
 
 
 def debug_image_as_arr(arr: np.ndarray, name: str = "test",
@@ -66,13 +69,12 @@ class AdaptiveSegmentationMaskAttack:
             return metric2method_mapp[mtr](x, y)
 
     @staticmethod
-    def calculate_l0_loss(x, y, *, threshold = 1e-6):
-        diff = (x-y)
+    def calculate_l0_loss(x, y, *, threshold=1e-6):
+        diff = (x - y)
         diff = torch.abs(diff)
         diff[diff > threshold] = 1
         diff[diff <= threshold] = 0
         return torch.sum(diff)
-
 
     @staticmethod
     def calculate_linf_loss(x, y):
@@ -167,6 +169,61 @@ class AdaptiveSegmentationMaskAttack:
             loss = loss + channel_loss
         return loss
 
+    def perform_targeted_universal_attack(self,
+                                          segmentation_dataset: Dataset,
+                                          original_class: int,
+                                          target_class: int,
+                                          *,
+                                          loss_metric: str | list[str] = "l2",
+                                          each_step_iter: int = 100,
+                                          save_sample: bool = True,
+                                          save_path: str = './adv_results/cityscapes_results/',
+                                          verbose: bool = True,
+                                          perturbation_learning_rate: float = 1e-3,
+                                          report_stat_interval: int = 10
+                                          ):
+        global_perturbation = None
+        counter = 1
+        for sample_tuple in segmentation_dataset:
+            if len(sample_tuple) == 2:
+                # by default (img, mask)
+                img_name, img, mask = None, sample_tuple[0], sample_tuple[1]
+            elif len(sample_tuple) == 3:
+                # by default (name, img, mask)
+                img_name, img, mask = sample_tuple[0], sample_tuple[1], sample_tuple[2]
+            else:
+                raise NotImplementedError(f"dataset returns {len(sample_tuple)} elem tuple but"
+                                          f"only support 2 or 3 elems")
+            # Perform attack
+            if global_perturbation is None:
+                global_perturbation = torch.zeros(img.shape, device="cpu")
+                if not self.use_cpu:
+                    global_perturbation = global_perturbation.cuda(self.device_id)
+
+            mask2 = copy.deepcopy(mask)
+            mask2[mask2 == original_class] = target_class
+            current_pert = self.perform_attack(img,
+                                               mask,
+                                               mask2,
+                                               loss_metric=loss_metric,
+                                               initial_perturbation=global_perturbation,
+                                               save_samples=False,
+                                               unique_class_list=[target_class],
+                                               total_iter=each_step_iter,
+                                               report_stat_interval=report_stat_interval,
+                                               verbose=verbose,
+                                               report_stats=False,)
+            global_perturbation += current_pert * perturbation_learning_rate
+            if counter % report_stat_interval == 0:
+                if save_sample:
+                    global_perturb_np: np.ndarray
+                    global_perturb_np = global_perturbation.cpu().detach().numpy()[0]
+                    save_image(global_perturb_np, 'iter_' + str(counter),
+                               save_path + 'global_ptb', normalize=True)
+                linf = torch.max(global_perturbation)
+                print(f"Iter: {counter}\t Linf: {linf}")
+            counter += 1
+
     def perform_attack(self,
                        input_image: torch.Tensor,
                        org_mask: torch.Tensor,
@@ -175,11 +232,15 @@ class AdaptiveSegmentationMaskAttack:
                        initial_perturbation: torch.Tensor | None = None,
                        loss_metric: str = "l2",
                        unique_class_list: list | set,
-                       total_iter=2501,
+                       total_iter=500,
                        save_samples=True,
-                       save_path='./adv_results/cityscapes_results/',
+                       save_path: str | None = None,
                        verbose=True,
-                       report_stat_interval=10):
+                       report_stats=True,
+                       report_stat_interval=10,
+                       early_stopping_accuracy_threshold: float | None = 5e-3) -> torch.Tensor:
+        assert save_path is None and save_samples, f"in perform_attack, " \
+                                                   f"attempt to save samples without save path specified."
         print(f">>> performing attack on save path {save_path}.")
 
         def verbose_print(s):
@@ -249,6 +310,8 @@ class AdaptiveSegmentationMaskAttack:
         if not self.use_cpu:
             org_im_copy = org_im_copy.cuda(self.device_id)
         verbose_printed_size = False
+
+        prev_iou = None
         for single_iter in range(total_iter):
             num_garbage = gc.collect()
             verbose_print(f">>> collected garbage number {num_garbage}")
@@ -308,7 +371,6 @@ class AdaptiveSegmentationMaskAttack:
             verbose_print(f"max of grad: {torch.max(int_grad)}")
             verbose_print(f"min of grad: {torch.max(int_grad)}")
 
-
             perturbed_im = image_to_optimize.data + (image_to_optimize.grad * pert_mul)
             # Do another forward pass to calculate new pert_mul
             perturbed_im_out = self.model(perturbed_im)
@@ -360,63 +422,50 @@ class AdaptiveSegmentationMaskAttack:
 
             # Update image to optimize and ensure boxt constraint
             verbose_print(f">>> checking type of perturbed im and im to op")
-            intermediate_tensor = perturbed_im.data
             """
             is this clamp(0,1) really not problemistic for multi class segmentation?
             """
-            # image_to_optimize = perturbed_im.data.clamp_(0, 1)
-            # image_to_optimize = perturbed_im.data.clamp(0, 255)
             image_to_optimize = copy.deepcopy(perturbed_im)
-            # verbose_print(type(perturbed_im))
-            # verbose_print(type(image_to_optimize))
-            # verbose_print(f"checking type of pert_im.data")
-            # verbose_print(type(perturbed_im.data))
-
             verbose_print(f">>> checking image to optimize integrity")
             verbose_print(f"max: {torch.max(image_to_optimize[0])}")
             verbose_print(f"min: {torch.min(image_to_optimize[0])}")
             if single_iter % report_stat_interval == 0 or single_iter == total_iter - 1:
                 if save_samples:
-                    # print(f">>> saving images sample to location: {save_path}")
-                    # pred_out_np = pred_out.cpu().detach().numpy()[0]
                     pred_out_np: np.ndarray
                     pred_out_np = pred_out.cpu().detach().numpy()[0]
                     pred_out_np = pred_out_np.astype('uint8')
-                    # pred_out_np = pred_out_np.transpose([1, 2, 0])
                     pred_out_np = CityscapeDataset.decode_target(pred_out_np)
-                    # print(pred_out_np.shape)
-                    # print(pred_out_np)
                     save_image(pred_out_np, 'iter_' + str(single_iter),
                                save_path + 'prediction', normalize=False)
                     # is this copy really necessary for normalization?
                     unnormalized_imtoptimize: torch.Tensor
                     unnormalized_imtoptimize = copy.deepcopy(image_to_optimize.data.cpu().detach())
-
-                    # db = unnormalized_imtoptimize.numpy()
-                    # print(np.amax(db), np.amin(db))
-
                     normalized_imtoptimize = CityscapeDataset.train_image_to_rgb(unnormalized_imtoptimize)
-                    # normalized_imtoptimize = normalized_imtoptimize.clamp(0, 1)
-                    # normalized_imtoptimize = unnormalized_imtoptimize
-
-                    # imoc: torch.Tensor
-                    # imoc = copy.deepcopy(normalized_imtoptimize)
-                    # imoc = torch.squeeze(imoc)
-                    # db = imoc.numpy()
-                    # print(db.shape)
-                    # db *= 254
-                    # db = db.transpose((1, 2, 0))
-                    # save_image(db, "mod_image_test", save_path, normalize=False)
-                    # print(np.amax(db), np.amin(db))
-
                     save_batch_image(normalized_imtoptimize.numpy(), 'iter_' + str(single_iter),
-                                     save_path + 'modified_image', normalize=True)
+                                     save_path + 'modified_image', normalize=True, save_flag=True)
                     save_batch_image_difference(image_to_optimize.data.cpu().detach().numpy(),
                                                 org_im_copy.data.cpu().detach().numpy(),
                                                 'iter_' + str(single_iter), save_path + 'added_perturbation',
-                                                normalize=True
+                                                normalize=True, save_flag=True
                                                 )
-                print('Iter:', single_iter, '\tIOU Overlap:', iou,
-                      '\tPixel Accuracy:', pixel_acc,
-                      '\n\t\tL2 Dist:', l2_dist,
-                      '\tL_inf dist:', linf_dist)
+                if report_stats:
+                    print('Iter:', single_iter, '\tIOU Overlap:', iou,
+                          '\tPixel Accuracy:', pixel_acc,
+                          '\n\t\tL2 Dist:', l2_dist,
+                          '\tL_inf dist:', linf_dist)
+
+                # early stopping via iou, a simple control
+                if prev_iou is not None and iou - prev_iou <= early_stopping_accuracy_threshold:
+                    if report_stats:
+                        print(f"IOU diff less than threshold. returning")
+                    break
+                else:
+                    prev_iou = iou
+        # unormalized final diff as perturbation. throw it back
+        final_diff = save_batch_image_difference(image_to_optimize.data.cpu().detach().numpy(),
+                                                 org_im_copy.data.cpu().detach().numpy(),
+                                                 None,
+                                                 normalize=False,
+                                                 save_flag=False
+                                                 )
+        return final_diff

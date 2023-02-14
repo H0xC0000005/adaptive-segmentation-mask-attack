@@ -18,6 +18,7 @@ from torch.utils.data.dataset import Dataset
 from helper_functions import save_binary_prediction_image, save_image
 import ext_transforms as et
 
+
 class CityscapeDataset(Dataset):
     CityscapesClass = namedtuple('CityscapesClass', ['name', 'id', 'train_id', 'category', 'category_id',
                                                      'has_instances', 'ignore_in_eval', 'color'])
