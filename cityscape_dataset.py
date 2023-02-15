@@ -1,21 +1,16 @@
-"""
-@author: Utku Ozbulak
-@repository: github.com/utkuozbulak/adaptive-segmentation-mask-attack
-@article: Impact of Adversarial Examples on Deep Learning Models for Biomedical Image Segmentation
-@conference: MICCAI-19
-"""
+
+import os
 import typing
 from collections import namedtuple
 
 import numpy as np
 import glob
 from PIL import Image
-import copy
 
 import torch
 from torch.utils.data.dataset import Dataset
 
-from helper_functions import save_binary_prediction_image, save_image
+from helper_functions import save_image
 import ext_transforms as et
 
 
@@ -107,6 +102,17 @@ class CityscapeDataset(Dataset):
                 raise RuntimeError(f"transform and inv_transform are not all specified.")
 
         print('Dataset size:', self.data_len)
+
+    @staticmethod
+    def trim_suffix_for_folder(folder_path: str):
+        for filename in os.listdir(folder_path):
+            dest = filename[0:filename.rfind('_')] + ".png"
+            source = folder_path + filename
+            dest = folder_path + dest if folder_path[-1] == "\\" or folder_path[-1] == "/" \
+                else folder_path + "/" + dest
+            # rename() function will
+            # rename all the files
+            os.rename(source, dest)
 
     @classmethod
     def encode_target(cls, target: np.ndarray):
