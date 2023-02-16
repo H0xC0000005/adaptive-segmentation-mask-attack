@@ -150,7 +150,7 @@ def save_image(im_as_arr: np.ndarray | torch.Tensor, im_name, folder_name, norma
     if not os.path.exists(folder_name):
         os.makedirs(folder_name)
     if isinstance(im_as_arr, torch.Tensor):
-        im_as_arr = im_as_arr.numpy()
+        im_as_arr = im_as_arr.cpu().detach().numpy()
     # im_as_arr = im_as_arr.copy()
     image_name_with_path = folder_name + '/' + str(im_name) + '.png'
     # astype() returns a copy but not view so it's safe
@@ -287,3 +287,14 @@ def calculate_image_distance(im1, im2):
     diff = torch.max(diff, dim=2)[0]  # 0-> item, 1-> pos
     linf_dist = torch.max(diff).item()
     return l2_dist, linf_dist
+
+def report_image_statistics(img: np.ndarray | torch.Tensor):
+    if isinstance(img, torch.Tensor):
+        img_as_ndarr = img.cpu().detach().numpy()
+    else:
+        img_as_ndarr = img
+    l1sum = img_as_ndarr.sum()
+
+    print(f"max:\t{np.amax(img_as_ndarr)}, min:\t{np.amin(img_as_ndarr)},\n"
+          f"type: \t{type(img)}, L1 sum:\t{l1sum}")
+

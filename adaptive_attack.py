@@ -170,30 +170,24 @@ class AdaptiveSegmentationMaskAttack:
         return loss
 
     def perform_targeted_universal_attack(self,
-                                          segmentation_dataset: Dataset,
+                                          segmentation_dataset: CityscapeDataset,
                                           original_class: int,
                                           target_class: int,
                                           *,
                                           loss_metric: str | list[str] = "l2",
                                           each_step_iter: int = 100,
                                           save_sample: bool = True,
-                                          save_path: str = './adv_results/cityscapes_results/',
+                                          save_path: str = './adv_results/cityscapes_universal_results/',
                                           verbose: bool = True,
                                           perturbation_learning_rate: float = 1e-3,
                                           report_stat_interval: int = 10
                                           ):
         global_perturbation = None
         counter = 1
-        for sample_tuple in segmentation_dataset:
-            if len(sample_tuple) == 2:
-                # by default (img, mask)
-                img_name, img, mask = None, sample_tuple[0], sample_tuple[1]
-            elif len(sample_tuple) == 3:
-                # by default (name, img, mask)
-                img_name, img, mask = sample_tuple[0], sample_tuple[1], sample_tuple[2]
-            else:
-                raise NotImplementedError(f"dataset returns {len(sample_tuple)} elem tuple but"
-                                          f"only support 2 or 3 elems")
+        for index in range(len(segmentation_dataset)):
+
+            report_image_statistics(mask)
+            report_image_statistics(img)
             # Perform attack
             if global_perturbation is None:
                 global_perturbation = torch.zeros(img.shape, device="cpu")
@@ -202,6 +196,14 @@ class AdaptiveSegmentationMaskAttack:
 
             mask2 = copy.deepcopy(mask)
             mask2[mask2 == original_class] = target_class
+
+            # report_image_statistics(mask)
+            # report_image_statistics(mask2)
+
+            if counter == 1:
+                save_image(mask, "mask_test1", save_path, normalize=False)
+                save_image(mask2, "mask_test2", save_path, normalize=False)
+
             current_pert = self.perform_attack(img,
                                                mask,
                                                mask2,
@@ -239,13 +241,13 @@ class AdaptiveSegmentationMaskAttack:
                        report_stats=True,
                        report_stat_interval=10,
                        early_stopping_accuracy_threshold: float | None = 5e-3) -> torch.Tensor:
-        assert save_path is None and save_samples, f"in perform_attack, " \
+        assert not (save_path is None and save_samples), f"in perform_attack, " \
                                                    f"attempt to save samples without save path specified."
-        print(f">>> performing attack on save path {save_path}.")
 
         def verbose_print(s):
             if verbose:
                 print(s)
+        verbose_print(f">>> performing attack on save path {save_path}.")
 
         device = "cpu" if self.use_cpu else self.device_id
         if len(unique_class_list) == 1:
@@ -259,10 +261,6 @@ class AdaptiveSegmentationMaskAttack:
         #     target_classes.remove(0)
         # except ValueError:
         #     pass
-        verbose_print(f"DEBUG: type of org mask: {type(org_mask)}, size of origin mask: {org_mask.numpy().shape}, "
-                      f"unique of org mask: {np.unique(org_mask.numpy())}")
-        verbose_print(f"DEBUG: type of tar mask: {type(target_mask)}")
-
         if save_samples:
             # Save masks
             verbose_print(f"> saving masks to location {save_path}")
@@ -298,13 +296,15 @@ class AdaptiveSegmentationMaskAttack:
         # Image to perform the attack on
         image_to_optimize: torch.Tensor
         image_to_optimize = input_image.unsqueeze(0)
-        print("VVVV max of im to optimize: ", np.amax(image_to_optimize.numpy()), "shape: ", image_to_optimize.shape)
+        if not self.use_cpu:
+            image_to_optimize = Variable(image_to_optimize.cuda(self.device_id), requires_grad=True)
+        # print("VVVV max of im to optimize: ", torch.max(image_to_optimize), "shape: ", image_to_optimize.shape)
         # add a bit gaussian noise for stabilization
         noise_variance = 1e-8
         # image_to_optimize = image_to_optimize + (noise_variance ** 0.5) * torch.randn(image_to_optimize.shape)
         if initial_perturbation is not None:
             image_to_optimize = image_to_optimize + initial_perturbation
-        print("VVVV max of im to optimize: ", np.amax(image_to_optimize.numpy()), "shape: ", image_to_optimize.shape)
+        print("VVVV max of im to optimize: ", torch.max(image_to_optimize), "shape: ", image_to_optimize.shape)
         # Copied version of image for l2 dist
         org_im_copy = copy.deepcopy(input_image.cpu())
         if not self.use_cpu:
@@ -462,8 +462,8 @@ class AdaptiveSegmentationMaskAttack:
                 else:
                     prev_iou = iou
         # unormalized final diff as perturbation. throw it back
-        final_diff = save_batch_image_difference(image_to_optimize.data.cpu().detach().numpy(),
-                                                 org_im_copy.data.cpu().detach().numpy(),
+        final_diff = save_batch_image_difference(image_to_optimize.data,
+                                                 org_im_copy.data,
                                                  None,
                                                  normalize=False,
                                                  save_flag=False

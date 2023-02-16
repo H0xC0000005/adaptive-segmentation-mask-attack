@@ -1,9 +1,4 @@
-"""
-@author: Utku Ozbulak
-@repository: github.com/utkuozbulak/adaptive-segmentation-mask-attack
-@article: Impact of Adversarial Examples on Deep Learning Models for Biomedical Image Segmentation
-@conference: MICCAI-19
-"""
+
 import collections
 import copy
 

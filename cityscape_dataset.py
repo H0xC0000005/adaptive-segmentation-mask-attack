@@ -156,21 +156,10 @@ class CityscapeDataset(Dataset):
         return result
 
     def __getitem__(self, index) -> (str, torch.Tensor, torch.Tensor):
-        DEBUG = True
-        """
-
-        image = Image.open(self.images[index]).convert('RGB')
-        target = Image.open(self.targets[index])
-        if self.transform:
-            image, target = self.transform(image, target)
-        target = self.encode_target(target)
-        return image, target
-
-        """
+        DEBUG = False
         # --- Image operations --- #
         image_path = self.image_list[index]
         image_name = image_path[image_path.rfind('/') + 1:]
-        print(f"fetched image name {image_name}")
         # Read image
         im_as_im = Image.open(image_path)
 
