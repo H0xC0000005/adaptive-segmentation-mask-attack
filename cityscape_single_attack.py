@@ -153,7 +153,7 @@ if __name__ == '__main__':
                                    save_path=root + "adv_results/cityscapes_results/",
                                    unique_class_list=[8],
                                    total_iter=200,
-                                   report_stat_interval=50,
+                                   report_stat_interval=25,
                                    verbose=False)
     # adaptive_attack.perform_attack(im2,
     #                                mask2,

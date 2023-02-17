@@ -25,8 +25,8 @@ if __name__ == '__main__':
 
     # Glaucoma dataset
     cityscape_dataset = CityscapeDataset(
-        image_path=root+'data/small_berlin_set/image',
-        mask_path=root+'data/small_berlin_set/mask'
+        image_path=root+'data/hamburg_set_small/image',
+        mask_path=root+'data/hamburg_set_small/mask'
     )
     # GPU parameters
     DEVICE_ID = 0
@@ -111,10 +111,10 @@ if __name__ == '__main__':
                                                              original_class=original_class,
                                                              target_class=target_class,
                                                              loss_metric="l1",
-                                                             each_step_iter=500,
+                                                             each_step_iter=100,
                                                              save_sample=True,
                                                              verbose=False,
-                                                             report_stat_interval=1)
+                                                             report_stat_interval=10)
 
     end_time = time.time()
     print(f">>> attack ended. time elapsed: {end_time - start_time}")

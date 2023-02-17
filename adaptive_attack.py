@@ -180,11 +180,22 @@ class AdaptiveSegmentationMaskAttack:
                                           save_path: str = './adv_results/cityscapes_universal_results/',
                                           verbose: bool = True,
                                           perturbation_learning_rate: float = 1e-3,
-                                          report_stat_interval: int = 10
+                                          report_stat_interval: int = 10,
                                           ):
         global_perturbation = None
         counter = 1
-        for index in range(len(segmentation_dataset)):
+        for sample_tuple in segmentation_dataset:
+            if len(sample_tuple) == 2:
+                # image, mask
+                img = sample_tuple[0]
+                mask = sample_tuple[1]
+            elif len(sample_tuple) == 3:
+                # name, image, mask
+                name = sample_tuple[0]
+                img = sample_tuple[1]
+                mask = sample_tuple[2]
+            else:
+                raise ValueError(f"sample tuple returned by your dataset is {len(sample_tuple)} instead of 2 or 3")
 
             report_image_statistics(mask)
             report_image_statistics(img)
@@ -214,7 +225,8 @@ class AdaptiveSegmentationMaskAttack:
                                                total_iter=each_step_iter,
                                                report_stat_interval=report_stat_interval,
                                                verbose=verbose,
-                                               report_stats=False,)
+                                               report_stats=True,
+                                               early_stopping_accuracy_threshold=None)
             global_perturbation += current_pert * perturbation_learning_rate
             if counter % report_stat_interval == 0:
                 if save_sample:
@@ -222,6 +234,10 @@ class AdaptiveSegmentationMaskAttack:
                     global_perturb_np = global_perturbation.cpu().detach().numpy()[0]
                     save_image(global_perturb_np, 'iter_' + str(counter),
                                save_path + 'global_ptb', normalize=True)
+                    mask_dec = CityscapeDataset.decode_target(mask)
+                    mask2_dec = CityscapeDataset.decode_target(mask2)
+                    save_image(mask_dec, f"mask_{counter}", save_path+"masks", normalize=False)
+                    save_image(mask2_dec, f"mask_{counter}_2", save_path+"masks", normalize=False)
                 linf = torch.max(global_perturbation)
                 print(f"Iter: {counter}\t Linf: {linf}")
             counter += 1
@@ -240,7 +256,7 @@ class AdaptiveSegmentationMaskAttack:
                        verbose=True,
                        report_stats=True,
                        report_stat_interval=10,
-                       early_stopping_accuracy_threshold: float | None = 5e-3) -> torch.Tensor:
+                       early_stopping_accuracy_threshold: float | None = 1e-4) -> torch.Tensor:
         assert not (save_path is None and save_samples), f"in perform_attack, " \
                                                    f"attempt to save samples without save path specified."
 
@@ -455,9 +471,11 @@ class AdaptiveSegmentationMaskAttack:
                           '\tL_inf dist:', linf_dist)
 
                 # early stopping via iou, a simple control
-                if prev_iou is not None and iou - prev_iou <= early_stopping_accuracy_threshold:
+                if early_stopping_accuracy_threshold is not None and\
+                        prev_iou is not None and iou - prev_iou <= early_stopping_accuracy_threshold:
                     if report_stats:
                         print(f"IOU diff less than threshold. returning")
+                    print(f"/// prev iou: {prev_iou}, iou: {iou}")
                     break
                 else:
                     prev_iou = iou
