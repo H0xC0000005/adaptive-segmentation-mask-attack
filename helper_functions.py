@@ -146,12 +146,14 @@ def save_batch_image_difference(org_image: np.ndarray | torch.Tensor,
     return diff
 
 
-def save_image(im_as_arr: np.ndarray | torch.Tensor, im_name, folder_name, normalize=True):
+def save_image(im_as_arr: np.ndarray | torch.Tensor, im_name, folder_name: os.PathLike | str, normalize=True):
     if not os.path.exists(folder_name):
         os.makedirs(folder_name)
     if isinstance(im_as_arr, torch.Tensor):
         im_as_arr = im_as_arr.cpu().detach().numpy()
     # im_as_arr = im_as_arr.copy()
+    if folder_name[-1] == "/":
+        folder_name = folder_name[:-1]
     image_name_with_path = folder_name + '/' + str(im_name) + '.png'
     # astype() returns a copy but not view so it's safe
 

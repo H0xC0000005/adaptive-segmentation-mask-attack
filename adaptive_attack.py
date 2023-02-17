@@ -40,7 +40,7 @@ def debug_image_as_arr(arr: np.ndarray, name: str = "test",
 
 
 class AdaptiveSegmentationMaskAttack:
-    def __init__(self, device_id, model, tau, beta, *, use_cpu=False):
+    def __init__(self, device_id: int, model: torch.nn.Module, tau: float, beta: float, *, use_cpu=False):
         self.temporary_class_id = None
         self.unique_classes = None  # much like a bit hacking that this is quite dynamic
         self.device_id = device_id

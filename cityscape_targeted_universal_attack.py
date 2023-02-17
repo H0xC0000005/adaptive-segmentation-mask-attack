@@ -28,9 +28,12 @@ if __name__ == '__main__':
         image_path=root+'data/hamburg_set_small/image',
         mask_path=root+'data/hamburg_set_small/mask'
     )
+    cityscape_dataset_eval = CityscapeDataset(
+        image_path=root + 'data/hamburg_set_small/image',
+        mask_path=root + 'data/hamburg_set_small/mask'
+    )
     # GPU parameters
     DEVICE_ID = 0
-
     # Load models, change it to where you download the models to
     model: nn.Module
     model = network.modeling.__dict__["deeplabv3plus_mobilenet"](num_classes=19, output_stride=8)
@@ -114,7 +117,21 @@ if __name__ == '__main__':
                                                              each_step_iter=100,
                                                              save_sample=True,
                                                              verbose=False,
+                                                             save_path='./adv_results/cityscapes_universal_results/',
                                                              report_stat_interval=10)
+
+    counter = 1
+    for eval_tuple in cityscape_dataset_eval:
+        img_eval: torch.Tensor
+        mask_eval: torch.Tensor
+        name, img_eval, mask_eval = eval_tuple[0], eval_tuple[1], eval_tuple[2]
+        if not USE_CPU:
+            img_eval = img_eval.cuda(DEVICE_ID)
+            mask_eval = mask_eval.cuda(DEVICE_ID)
+        pred_out = model(img_eval)
+        save_image(pred_out, f"eval_{counter}", root + f"adv_results/cityscapes_universal_results/eval/")
+
+        counter += 1
 
     end_time = time.time()
     print(f">>> attack ended. time elapsed: {end_time - start_time}")
