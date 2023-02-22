@@ -9,7 +9,7 @@ from PIL import Image
 import network._deeplab
 # In-repo imports
 from cityscape_dataset import CityscapeDataset
-from helper_functions import load_model, save_image
+from helper_functions import *
 from adaptive_attack import AdaptiveSegmentationMaskAttack
 import torch.nn as nn
 import time
@@ -29,8 +29,8 @@ if __name__ == '__main__':
         mask_path=root+'data/hamburg_set_small/mask'
     )
     cityscape_dataset_eval = CityscapeDataset(
-        image_path=root + 'data/hamburg_set_small/image',
-        mask_path=root + 'data/hamburg_set_small/mask'
+        image_path=root + 'data/hamburg_set_small_eval/image',
+        mask_path=root + 'data/hamburg_set_small_eval/mask'
     )
     # GPU parameters
     DEVICE_ID = 0
@@ -86,8 +86,10 @@ if __name__ == '__main__':
     print(f"device of net (by first layer parameter): {next(model.parameters()).device}")
 
     # Attack parameters
-    tau = 1e-7
-    beta = 1e-6
+    # tau = 1e-7
+    # beta = 1e-6
+    tau = 2e-6
+    beta = 2e-5
     original_class = 13
     target_class = 8
 
@@ -114,12 +116,15 @@ if __name__ == '__main__':
                                                              original_class=original_class,
                                                              target_class=target_class,
                                                              loss_metric="l1",
-                                                             each_step_iter=100,
+                                                             each_step_iter=5,
                                                              save_sample=True,
                                                              verbose=False,
                                                              save_path='./adv_results/cityscapes_universal_results/',
-                                                             report_stat_interval=10)
+                                                             report_stat_interval=100,
+                                                             early_stopping_accuracy_threshold=None,
+                                                             perturbation_learning_rate=64e-2)
 
+    report_image_statistics(pert)
     counter = 1
     for eval_tuple in cityscape_dataset_eval:
         img_eval: torch.Tensor
@@ -128,8 +133,22 @@ if __name__ == '__main__':
         if not USE_CPU:
             img_eval = img_eval.cuda(DEVICE_ID)
             mask_eval = mask_eval.cuda(DEVICE_ID)
+        img_eval = img_eval.unsqueeze(0)
+        img_eval_pert = img_eval + pert
+        pred_out: torch.Tensor
+        pred_out_pert: torch.Tensor
         pred_out = model(img_eval)
+        pred_out_pert = model(img_eval_pert)
+        pred_out = pred_out.cpu().detach()
+        pred_out_pert = pred_out_pert.cpu().detach()
+        pred_out = torch.argmax(pred_out, dim=1)
+        pred_out_pert = torch.argmax(pred_out_pert, dim=1)
+        pred_out = CityscapeDataset.decode_target(pred_out)
+        pred_out_pert = CityscapeDataset.decode_target(pred_out_pert)
+
         save_image(pred_out, f"eval_{counter}", root + f"adv_results/cityscapes_universal_results/eval/")
+        save_image(pred_out_pert, f"eval_{counter}_pert", root + f"adv_results/cityscapes_universal_results/eval/")
+
 
         counter += 1
 

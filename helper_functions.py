@@ -152,6 +152,17 @@ def save_image(im_as_arr: np.ndarray | torch.Tensor, im_name, folder_name: os.Pa
     if isinstance(im_as_arr, torch.Tensor):
         im_as_arr = im_as_arr.cpu().detach().numpy()
     # im_as_arr = im_as_arr.copy()
+    im_as_arr: np.ndarray
+    if len(im_as_arr.shape) > 3:
+        if im_as_arr.shape[0] == 1:
+            im_as_arr = np.squeeze(im_as_arr, axis=0)
+        else:
+            raise ValueError(f"received image with 4+ dim but first dim not 1 (thus not squeezable)")
+
+    if im_as_arr.shape[0] in (1, 3):
+        # assume first channel is greyscale or 3-ch
+        print(im_as_arr.shape)
+        im_as_arr = im_as_arr.transpose((1, 2, 0))
     if folder_name[-1] == "/":
         folder_name = folder_name[:-1]
     image_name_with_path = folder_name + '/' + str(im_name) + '.png'
@@ -165,9 +176,6 @@ def save_image(im_as_arr: np.ndarray | torch.Tensor, im_name, folder_name: os.Pa
         if imax != imin:
             im_as_arr = im_as_arr / (imax - imin) * 254
     im_as_arr = im_as_arr.astype('uint8')
-    # print(type(im_as_arr))
-    # print(np.unique(im_as_arr))
-    # print(im_as_arr)
     pred_img = Image.fromarray(im_as_arr)
 
     # pred_img.show(im_name)
@@ -290,13 +298,16 @@ def calculate_image_distance(im1, im2):
     linf_dist = torch.max(diff).item()
     return l2_dist, linf_dist
 
+
 def report_image_statistics(img: np.ndarray | torch.Tensor):
     if isinstance(img, torch.Tensor):
         img_as_ndarr = img.cpu().detach().numpy()
     else:
         img_as_ndarr = img
-    l1sum = img_as_ndarr.sum()
+    mean = np.mean(img_as_ndarr)
+    median = np.median(img_as_ndarr)
+    l1sum = np.sum(img_as_ndarr)
 
-    print(f"max:\t{np.amax(img_as_ndarr)}, min:\t{np.amin(img_as_ndarr)},\n"
+    print(f"max:\t{np.amax(img_as_ndarr)}, min:\t{np.amin(img_as_ndarr)}, mean:\t{mean}, median:\t{median}\n"
           f"type: \t{type(img)}, L1 sum:\t{l1sum}")
 

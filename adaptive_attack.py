@@ -181,7 +181,8 @@ class AdaptiveSegmentationMaskAttack:
                                           verbose: bool = True,
                                           perturbation_learning_rate: float = 1e-3,
                                           report_stat_interval: int = 10,
-                                          ):
+                                          early_stopping_accuracy_threshold=1e-3,
+                                          ) -> torch.Tensor:
         global_perturbation = None
         counter = 1
         for sample_tuple in segmentation_dataset:
@@ -226,7 +227,7 @@ class AdaptiveSegmentationMaskAttack:
                                                report_stat_interval=report_stat_interval,
                                                verbose=verbose,
                                                report_stats=True,
-                                               early_stopping_accuracy_threshold=None)
+                                               early_stopping_accuracy_threshold=early_stopping_accuracy_threshold)
             global_perturbation += current_pert * perturbation_learning_rate
             if counter % report_stat_interval == 0:
                 if save_sample:
@@ -241,6 +242,7 @@ class AdaptiveSegmentationMaskAttack:
                 linf = torch.max(global_perturbation)
                 print(f"Iter: {counter}\t Linf: {linf}")
             counter += 1
+        return global_perturbation
 
     def perform_attack(self,
                        input_image: torch.Tensor,
