@@ -22,7 +22,9 @@ from torch.utils.data import Dataset
 
 from helper_functions import *
 from cityscape_dataset import CityscapeDataset
+from self_defined_loss import *
 import os
+
 
 # random.seed(4)
 
@@ -102,6 +104,13 @@ class AdaptiveSegmentationMaskAttack:
         loss = loss.sum()
         return loss
 
+    @staticmethod
+    def calculate_l1_dense_mask(perturbation: torch.Tensor) -> torch.Tensor:
+        """
+        calculate the most dense parts of a perturbation and return as a 0-1 mask as tensor
+        """
+        pass
+
     def calculate_target_pred_loss(self, target_mask, pred_out, model_output,
                                    target_class: typing.Iterable[int] = None):
         # pred_loss = self.calculate_target_pred_loss(target_mask, pred_out, out, target_class=target_classes)
@@ -169,6 +178,9 @@ class AdaptiveSegmentationMaskAttack:
             loss = loss + channel_loss
         return loss
 
+    def perform_L1plusL2_attack(self):
+        pass
+
     def perform_targeted_universal_attack(self,
                                           segmentation_dataset: CityscapeDataset,
                                           original_class: int,
@@ -179,6 +191,7 @@ class AdaptiveSegmentationMaskAttack:
                                           save_sample: bool = True,
                                           save_path: str = './adv_results/cityscapes_universal_results/',
                                           verbose: bool = True,
+                                          classification_vs_norm_ratio: float = 1 / 16,
                                           perturbation_learning_rate: float = 1e-3,
                                           report_stat_interval: int = 10,
                                           early_stopping_accuracy_threshold=1e-3,
@@ -208,10 +221,6 @@ class AdaptiveSegmentationMaskAttack:
 
             mask2 = copy.deepcopy(mask)
             mask2[mask2 == original_class] = target_class
-
-            # report_image_statistics(mask)
-            # report_image_statistics(mask2)
-
             if counter == 1:
                 save_image(mask, "mask_test1", save_path, normalize=False)
                 save_image(mask2, "mask_test2", save_path, normalize=False)
@@ -227,7 +236,8 @@ class AdaptiveSegmentationMaskAttack:
                                                report_stat_interval=report_stat_interval,
                                                verbose=verbose,
                                                report_stats=True,
-                                               early_stopping_accuracy_threshold=early_stopping_accuracy_threshold)
+                                               early_stopping_accuracy_threshold=early_stopping_accuracy_threshold,
+                                               classification_vs_norm_ratio=classification_vs_norm_ratio)
             global_perturbation += current_pert * perturbation_learning_rate
             if counter % report_stat_interval == 0:
                 if save_sample:
@@ -237,8 +247,8 @@ class AdaptiveSegmentationMaskAttack:
                                save_path + 'global_ptb', normalize=True)
                     mask_dec = CityscapeDataset.decode_target(mask)
                     mask2_dec = CityscapeDataset.decode_target(mask2)
-                    save_image(mask_dec, f"mask_{counter}", save_path+"masks", normalize=False)
-                    save_image(mask2_dec, f"mask_{counter}_2", save_path+"masks", normalize=False)
+                    save_image(mask_dec, f"mask_{counter}", save_path + "masks", normalize=False)
+                    save_image(mask2_dec, f"mask_{counter}_2", save_path + "masks", normalize=False)
                 linf = torch.max(global_perturbation)
                 print(f"Iter: {counter}\t Linf: {linf}")
             counter += 1
@@ -249,22 +259,33 @@ class AdaptiveSegmentationMaskAttack:
                        org_mask: torch.Tensor,
                        target_mask: torch.Tensor | None,
                        *,
-                       initial_perturbation: torch.Tensor | None = None,
+                       perturbation_mask: torch.Tensor = None,
+                       initial_perturbation: torch.Tensor = None,
                        loss_metric: str = "l2",
                        unique_class_list: list | set,
                        total_iter=500,
-                       save_samples=True,
+                       classification_vs_norm_ratio: float = 1 / 16,
+                       save_samples: bool = True,
                        save_path: str | None = None,
-                       verbose=True,
-                       report_stats=True,
-                       report_stat_interval=10,
+                       verbose: bool = True,
+                       report_stats: bool = True,
+                       report_stat_interval: int = 10,
                        early_stopping_accuracy_threshold: float | None = 1e-4) -> torch.Tensor:
         assert not (save_path is None and save_samples), f"in perform_attack, " \
-                                                   f"attempt to save samples without save path specified."
+                                                         f"attempt to save samples without save path specified."
+        if perturbation_mask is not None:
+            assert org_mask.shape == perturbation_mask.shape, f"in perform_attack, provided perturbation mask with shape " \
+                                                              f"{perturbation_mask.shape} that is inconsistent " \
+                                                              f"with input shape {org_mask.shape}"
+            if self.use_cpu:
+                perturbation_mask = perturbation_mask.cuda(self.device_id)
+            else:
+                perturbation_mask = perturbation_mask.cpu()
 
         def verbose_print(s):
             if verbose:
                 print(s)
+
         verbose_print(f">>> performing attack on save path {save_path}.")
 
         device = "cpu" if self.use_cpu else self.device_id
@@ -361,7 +382,7 @@ class AdaptiveSegmentationMaskAttack:
                 pred_loss = self.calculate_untargeted_pred_loss(pred_out, out, original_class=target_classes)
             # Total loss
             pred_loss_weight = 1
-            dist_loss_weight = 16
+            dist_loss_weight = pred_loss_weight / classification_vs_norm_ratio
             if target_mask is not None:
                 out_grad = torch.sum(pred_loss_weight * pred_loss - dist_loss_weight * dist_loss)
             else:
@@ -373,13 +394,7 @@ class AdaptiveSegmentationMaskAttack:
             verbose_print(f"OOO out pred loss: {pred_loss}")
             # Backward pass
             out_grad.backward()
-
-            # Add perturbation to image to optimize
-            # verbose_print(f">>> type of image to optimize: {type(image_to_optimize)} "
-            #       f"and its data type {type(image_to_optimize.data)}")
-            # verbose_print(f"its grad type: {type(image_to_optimize.grad)} and pert_mul type {type(pert_mul)}")
             perturbed_im: torch.Tensor
-
             verbose_print(f">>> checking gradient of image to optimize:")
             int_grad: torch.Tensor
             int_grad = image_to_optimize.grad
@@ -389,7 +404,14 @@ class AdaptiveSegmentationMaskAttack:
             verbose_print(f"max of grad: {torch.max(int_grad)}")
             verbose_print(f"min of grad: {torch.max(int_grad)}")
 
-            perturbed_im = image_to_optimize.data + (image_to_optimize.grad * pert_mul)
+            # apply hardcoded mask on perturbation. by default perturbation "bumps into" mask
+            # and clamped.
+            if perturbation_mask is None:
+                cur_pert = image_to_optimize.grad * pert_mul
+            else:
+                cur_pert = image_to_optimize.grad * perturbation_mask * pert_mul
+            perturbed_im = image_to_optimize.data + cur_pert
+
             # Do another forward pass to calculate new pert_mul
             perturbed_im_out = self.model(perturbed_im)
 
@@ -401,8 +423,6 @@ class AdaptiveSegmentationMaskAttack:
 
             # Calculate performance of the attack
             # Similarities
-            # iou, pixel_acc = calculate_multiclass_mask_similarity(perturbed_im_pred, target_mask_numpy,
-            #                                                       target_classes=self.unique_classes)
             if target_mask is not None:
                 iou, pixel_acc = calculate_multiclass_mask_similarity(perturbed_im_pred,
                                                                       target_mask_numpy,
@@ -424,14 +444,9 @@ class AdaptiveSegmentationMaskAttack:
                     temp_pred_mask[temp_pred_mask == self.temporary_class_id] = 0
                     attacked = np.sum(temp_pred_mask * temp_mask)
                     original_total = np.sum(temp_mask)
-                    # print(temp_pred_mask.shape, temp_pred_mask.shape[0] * temp_pred_mask.shape[1])
-                    # print(np.sum(temp_pred_mask))
-                    # print(attacked, original_total)
                     acc_iou += attacked / original_total
                 iou = acc_iou / len(target_classes)
                 pixel_acc = "untargeted"
-
-            # iou, pixel_acc = calculate_multiclass_mask_similarity(perturbed_im_pred, target_mask_numpy,)
 
             # Distances
             l2_dist, linf_dist = calculate_image_distance(org_im_copy, perturbed_im)
@@ -473,7 +488,7 @@ class AdaptiveSegmentationMaskAttack:
                           '\tL_inf dist:', linf_dist)
 
                 # early stopping via iou, a simple control
-                if early_stopping_accuracy_threshold is not None and\
+                if early_stopping_accuracy_threshold is not None and \
                         prev_iou is not None and iou - prev_iou <= early_stopping_accuracy_threshold:
                     if report_stats:
                         print(f"IOU diff less than threshold. returning")
