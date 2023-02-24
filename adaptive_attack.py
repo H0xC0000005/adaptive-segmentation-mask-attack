@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import copy
 import random
 import gc
 import time
@@ -195,6 +196,7 @@ class AdaptiveSegmentationMaskAttack:
                                           perturbation_learning_rate: float = 1e-3,
                                           report_stat_interval: int = 10,
                                           early_stopping_accuracy_threshold=1e-3,
+                                          limit_perturbation_to_target: bool = True
                                           ) -> torch.Tensor:
         global_perturbation = None
         counter = 1
@@ -220,6 +222,13 @@ class AdaptiveSegmentationMaskAttack:
                     global_perturbation = global_perturbation.cuda(self.device_id)
 
             mask2 = copy.deepcopy(mask)
+            if limit_perturbation_to_target:
+                pert_mask = copy.deepcopy(mask)
+                pert_mask[pert_mask == original_class] = self.temporary_class_id
+                pert_mask[pert_mask != self.temporary_class_id] = 0
+                pert_mask[pert_mask == self.temporary_class_id] = 1
+            else:
+                pert_mask = None
             mask2[mask2 == original_class] = target_class
             if counter == 1:
                 save_image(mask, "mask_test1", save_path, normalize=False)
@@ -237,7 +246,9 @@ class AdaptiveSegmentationMaskAttack:
                                                verbose=verbose,
                                                report_stats=True,
                                                early_stopping_accuracy_threshold=early_stopping_accuracy_threshold,
-                                               classification_vs_norm_ratio=classification_vs_norm_ratio)
+                                               classification_vs_norm_ratio=classification_vs_norm_ratio,
+                                               perturbation_mask=pert_mask
+                                               )
             global_perturbation += current_pert * perturbation_learning_rate
             if counter % report_stat_interval == 0:
                 if save_sample:
@@ -259,9 +270,12 @@ class AdaptiveSegmentationMaskAttack:
                        org_mask: torch.Tensor,
                        target_mask: torch.Tensor | None,
                        *,
+                       kwargs_for_metrics: dict[str, typing.Any] = None,
                        perturbation_mask: torch.Tensor = None,
                        initial_perturbation: torch.Tensor = None,
                        loss_metric: str = "l2",
+                       additional_loss_metric: typing.Iterable[SelfDefinedLoss] = None,
+                       additional_loss_weights: typing.Iterable[float] = None,
                        unique_class_list: list | set,
                        total_iter=500,
                        classification_vs_norm_ratio: float = 1 / 16,
@@ -274,6 +288,7 @@ class AdaptiveSegmentationMaskAttack:
         assert not (save_path is None and save_samples), f"in perform_attack, " \
                                                          f"attempt to save samples without save path specified."
         if perturbation_mask is not None:
+            perturbation_mask_numpy = perturbation_mask.cpu().numpy()
             assert org_mask.shape == perturbation_mask.shape, f"in perform_attack, provided perturbation mask with shape " \
                                                               f"{perturbation_mask.shape} that is inconsistent " \
                                                               f"with input shape {org_mask.shape}"
@@ -281,6 +296,9 @@ class AdaptiveSegmentationMaskAttack:
                 perturbation_mask = perturbation_mask.cuda(self.device_id)
             else:
                 perturbation_mask = perturbation_mask.cpu()
+        else:
+            perturbation_mask_numpy = None
+
 
         def verbose_print(s):
             if verbose:
@@ -384,14 +402,32 @@ class AdaptiveSegmentationMaskAttack:
             pred_loss_weight = 1
             dist_loss_weight = pred_loss_weight / classification_vs_norm_ratio
             if target_mask is not None:
-                out_grad = torch.sum(pred_loss_weight * pred_loss - dist_loss_weight * dist_loss)
+                # TODO: refactor +- signs of both losses
+                # positive dist loss, positive pred loss
+                out_grad = pred_loss_weight * pred_loss + dist_loss_weight * dist_loss
             else:
-                out_grad = torch.sum(- pred_loss_weight * pred_loss - dist_loss_weight * dist_loss)
+                # positive dist loss, negative untargeted loss
+                out_grad = - pred_loss_weight * pred_loss + dist_loss_weight * dist_loss
 
-            # verbose_print(f"OOO out grad dimension: {out_grad.shape}")
+            if additional_loss_metric is not None:
+                kwargs_for_metrics["tensor1"] = pred_out
+                kwargs_for_metrics["tensor2"] = target_mask
+                for loss_name, cur_weight in zip(additional_loss_metric, additional_loss_weights):
+                    kwargs_for_metrics["weight"] = cur_weight
+                    if not isinstance(loss_name, typing.Callable):
+                        raise NotImplementedError(f"in perform_attack, additional loss metric not callable: currently"
+                                                  f" only support callables")
+                    # by default loss is positive
+                    out_grad += loss_name(kwargs_for_metrics)
+
+            out_grad = torch.sum(out_grad)
+            """
+            remember to torch.sum() for outgrad
+            """
             verbose_print(f"OOO out grad : {out_grad}")
             verbose_print(f"OOO out L-x loss: {dist_loss}")
             verbose_print(f"OOO out pred loss: {pred_loss}")
+
             # Backward pass
             out_grad.backward()
             perturbed_im: torch.Tensor
@@ -405,7 +441,7 @@ class AdaptiveSegmentationMaskAttack:
             verbose_print(f"min of grad: {torch.max(int_grad)}")
 
             # apply hardcoded mask on perturbation. by default perturbation "bumps into" mask
-            # and clamped.
+            # and clamped (as backprop first and update).
             if perturbation_mask is None:
                 cur_pert = image_to_optimize.grad * pert_mul
             else:
@@ -426,7 +462,8 @@ class AdaptiveSegmentationMaskAttack:
             if target_mask is not None:
                 iou, pixel_acc = calculate_multiclass_mask_similarity(perturbed_im_pred,
                                                                       target_mask_numpy,
-                                                                      target_classes=target_classes)
+                                                                      target_classes=target_classes,
+                                                                      iou_mask=perturbation_mask_numpy)
             else:
                 acc_iou = 0
                 for elem in target_classes:

@@ -212,11 +212,17 @@ def calculate_binary_mask_similarity(mask1: np.ndarray, mask2: np.ndarray):
 
 def calculate_multiclass_mask_similarity(mask1_raw: np.ndarray | torch.Tensor,
                                          mask2_raw: np.ndarray | torch.Tensor,
-                                         target_classes: list | None = None):
+                                         target_classes: list | None = None,
+                                         *,
+                                         iou_mask: torch.Tensor | np.ndarray = None):
     """
     Calculates IOU and pixel accuracy between two masks
+    can optionally provide iou mask, where iou is only computed with pixels within mask
     """
     # print(f">>> calculating IOU of masks")
+    if iou_mask is not None:
+        if isinstance(iou_mask, torch.Tensor):
+            iou_mask = iou_mask.cpu().detach().numpy()
     if isinstance(mask1_raw, np.ndarray):
         mask1 = mask1_raw
     else:
@@ -255,6 +261,11 @@ def calculate_multiclass_mask_similarity(mask1_raw: np.ndarray | torch.Tensor,
         mask2_single_class: np.ndarray
         mask1_single_class = (mask1 == elem)
         mask2_single_class = (mask2 == elem)
+        mask1_single_class = mask1_single_class.astype(int)
+        mask2_single_class = mask2_single_class.astype(int)
+        if iou_mask is not None:
+            mask2_single_class *= iou_mask
+            mask1_single_class *= iou_mask
         mask1_single_class = mask1_single_class.astype(int)
         mask2_single_class = mask2_single_class.astype(int)
 

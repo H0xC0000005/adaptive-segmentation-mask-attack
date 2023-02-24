@@ -26,7 +26,7 @@ def get_param_from_kwargs(kwargs: dict[str, typing.Any], key: str):
 class SelfDefinedLoss(object):
 
     @staticmethod
-    def __call__(**kwargs):
+    def __call__(kwargs: dict[str, typing.Any]):
         raise NotImplementedError(f"base class of self defined loss is not implemented.")
 
     @staticmethod
@@ -44,11 +44,11 @@ class TotalVariation(SelfDefinedLoss):
     """
 
     @staticmethod
-    def __call__(**kwargs: dict[str, typing.Any]) -> float:
+    def __call__(arg_dict: dict[str, typing.Any]) -> float:
         t1: torch.Tensor
         weight: float
-        t1 = get_param_from_kwargs(kwargs, "tensor1")
-        weight = SelfDefinedLoss.get_weight(kwargs)
+        t1 = get_param_from_kwargs(arg_dict, "tensor1")
+        weight = SelfDefinedLoss.get_weight(arg_dict)
         if t1 is None:
             raise ValueError(f"in loss TotalVariation, tensor 1 is None. specify with keyword tensor1=xx.")
 
@@ -74,11 +74,11 @@ class NonPrintabilityScore(SelfDefinedLoss):
     """
 
     @staticmethod
-    def __call__(**kwargs):
+    def __call__(arg_dict: dict[str, typing.Any]):
         t1: torch.Tensor
         weight: float
         printable_tuples: typing.Iterable[tuple[float]]
-        t1 = get_param_from_kwargs(kwargs, "tensor1")
+        t1 = get_param_from_kwargs(arg_dict, "tensor1")
         if t1 is None:
             raise ValueError(f"in loss NonPrintabilityScore, tensor 1 is None. specify with keyword tensor1=xx.")
         # torch style colouring
@@ -86,8 +86,8 @@ class NonPrintabilityScore(SelfDefinedLoss):
             has_batch = True
         else:
             has_batch = False
-        weight = SelfDefinedLoss.get_weight(kwargs)
-        printable_tuples = get_param_from_kwargs(kwargs, "printable_tuples")
+        weight = SelfDefinedLoss.get_weight(arg_dict)
+        printable_tuples = get_param_from_kwargs(arg_dict, "printable_tuples")
         global_loss = None
         for elem in printable_tuples:
             cur_color = copy.deepcopy(t1)

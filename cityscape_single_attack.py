@@ -144,8 +144,14 @@ if __name__ == '__main__':
     #                                mask1,
     #                                unique_class_list=list(set().union(m1set, m2set)),
     #                                total_iter=200)
+    target = 8
+    original = 13
     mask1 = copy.deepcopy(mask2)
-    mask1[mask1 == 13] = 8
+    pert_mask = copy.deepcopy(mask2)
+    pert_mask[pert_mask == original] = -1
+    pert_mask[pert_mask != -1] = 0
+    pert_mask[pert_mask == -1] = 1
+    mask1[mask1 == original] = target
     adaptive_attack.perform_attack(im2,
                                    mask2,
                                    mask1,
@@ -154,7 +160,8 @@ if __name__ == '__main__':
                                    unique_class_list=[8],
                                    total_iter=200,
                                    report_stat_interval=25,
-                                   verbose=False)
+                                   verbose=True,
+                                   perturbation_mask=pert_mask)
     # adaptive_attack.perform_attack(im2,
     #                                mask2,
     #                                mask1,
