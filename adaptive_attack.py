@@ -274,8 +274,8 @@ class AdaptiveSegmentationMaskAttack:
                        perturbation_mask: torch.Tensor = None,
                        initial_perturbation: torch.Tensor = None,
                        loss_metric: str = "l2",
-                       additional_loss_metric: typing.Iterable[SelfDefinedLoss] = None,
-                       additional_loss_weights: typing.Iterable[float] = None,
+                       additional_loss_metric: typing.Collection[typing.Callable] = None,
+                       additional_loss_weights: typing.Collection[float] = None,
                        unique_class_list: list | set,
                        total_iter=500,
                        classification_vs_norm_ratio: float = 1 / 16,
@@ -287,12 +287,17 @@ class AdaptiveSegmentationMaskAttack:
                        early_stopping_accuracy_threshold: float | None = 1e-4) -> torch.Tensor:
         assert not (save_path is None and save_samples), f"in perform_attack, " \
                                                          f"attempt to save samples without save path specified."
+        if kwargs_for_metrics is None:
+            kwargs_for_metrics = dict()
+        if additional_loss_metric is not None:
+            if additional_loss_weights is None:
+                additional_loss_weights = [1] * len(additional_loss_metric)
         if perturbation_mask is not None:
             perturbation_mask_numpy = perturbation_mask.cpu().numpy()
             assert org_mask.shape == perturbation_mask.shape, f"in perform_attack, provided perturbation mask with shape " \
                                                               f"{perturbation_mask.shape} that is inconsistent " \
                                                               f"with input shape {org_mask.shape}"
-            if self.use_cpu:
+            if not self.use_cpu:
                 perturbation_mask = perturbation_mask.cuda(self.device_id)
             else:
                 perturbation_mask = perturbation_mask.cpu()
@@ -402,7 +407,7 @@ class AdaptiveSegmentationMaskAttack:
             pred_loss_weight = 1
             dist_loss_weight = pred_loss_weight / classification_vs_norm_ratio
             if target_mask is not None:
-                # TODO: refactor +- signs of both losses
+                # TODO: refactor +- signs of both losses, - sign for weight loss really correct?
                 # positive dist loss, positive pred loss
                 out_grad = pred_loss_weight * pred_loss + dist_loss_weight * dist_loss
             else:
@@ -526,7 +531,8 @@ class AdaptiveSegmentationMaskAttack:
 
                 # early stopping via iou, a simple control
                 if early_stopping_accuracy_threshold is not None and \
-                        prev_iou is not None and iou - prev_iou <= early_stopping_accuracy_threshold:
+                        prev_iou is not None and \
+                        iou - prev_iou <= early_stopping_accuracy_threshold and single_iter >= total_iter / 2:
                     if report_stats:
                         print(f"IOU diff less than threshold. returning")
                     print(f"/// prev iou: {prev_iou}, iou: {iou}")

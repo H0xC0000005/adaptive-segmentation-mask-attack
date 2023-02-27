@@ -11,6 +11,7 @@ import network._deeplab
 from cityscape_dataset import CityscapeDataset
 from helper_functions import load_model, save_image
 from adaptive_attack import AdaptiveSegmentationMaskAttack
+from self_defined_loss import *
 import torch.nn as nn
 import time
 
@@ -88,8 +89,8 @@ if __name__ == '__main__':
     print(f"device of net (by first layer parameter): {next(model.parameters()).device}")
 
     # Attack parameters
-    tau = 1e-7
-    beta = 1e-6
+    tau = 2e-7
+    beta = 2e-6
     # vanishing_class = 13
     vanishing_class = None
 
@@ -152,16 +153,22 @@ if __name__ == '__main__':
     pert_mask[pert_mask != -1] = 0
     pert_mask[pert_mask == -1] = 1
     mask1[mask1 == original] = target
+    additional_loss = [total_variation]
     adaptive_attack.perform_attack(im2,
                                    mask2,
                                    mask1,
-                                   loss_metric="l0",
+                                   loss_metric="l1",
                                    save_path=root + "adv_results/cityscapes_results/",
                                    unique_class_list=[8],
-                                   total_iter=200,
+                                   total_iter=1000,
                                    report_stat_interval=25,
-                                   verbose=True,
-                                   perturbation_mask=pert_mask)
+                                   verbose=False,
+                                   report_stats=True,
+                                   perturbation_mask=pert_mask,
+                                   classification_vs_norm_ratio=1/16,
+                                   early_stopping_accuracy_threshold=1e-3,
+                                   additional_loss_metric=additional_loss,
+                                   additional_loss_weights=[8])
     # adaptive_attack.perform_attack(im2,
     #                                mask2,
     #                                mask1,
