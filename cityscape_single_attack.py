@@ -1,4 +1,3 @@
-
 import collections
 import copy
 
@@ -18,7 +17,6 @@ import time
 # USE_CPU = True
 USE_CPU = False
 
-
 root = "/home/peizhu/Desktop/proj/segmentation-atk-pipeline/"
 # torch.cuda.set_enabled_lms(True)
 
@@ -26,8 +24,8 @@ if __name__ == '__main__':
 
     # Glaucoma dataset
     cityscape_dataset = CityscapeDataset(
-        image_path=root+'data/cityscape/image',
-        mask_path=root+'/data/cityscape/mask'
+        image_path=root + 'data/cityscape/image',
+        mask_path=root + '/data/cityscape/mask'
     )
     # cityscape_dataset = CityscapeDataset(
     #     image_path= '/home/peizhu/PycharmProjects/adaptive-segmentation-mask-attack/data/cityscape_single_eg2/image',
@@ -41,7 +39,7 @@ if __name__ == '__main__':
     model: nn.Module
     model = network.modeling.__dict__["deeplabv3plus_mobilenet"](num_classes=19, output_stride=8)
 
-    model_dict = load_model(root+'models/best_deeplabv3plus_mobilenet_cityscapes_os16.pth')
+    model_dict = load_model(root + 'models/best_deeplabv3plus_mobilenet_cityscapes_os16.pth')
 
     """
     argv[1]: path to model to load
@@ -139,14 +137,15 @@ if __name__ == '__main__':
     """
     attack sandbox
     """
+    target = 8
+    original = 13
+
     start_time = time.time()
     # adaptive_attack.perform_attack(im2,
     #                                mask2,
     #                                mask1,
     #                                unique_class_list=list(set().union(m1set, m2set)),
     #                                total_iter=200)
-    target = 8
-    original = 13
     mask1 = copy.deepcopy(mask2)
     pert_mask = copy.deepcopy(mask2)
     pert_mask[pert_mask == original] = -1
@@ -154,21 +153,35 @@ if __name__ == '__main__':
     pert_mask[pert_mask == -1] = 1
     mask1[mask1 == original] = target
     additional_loss = [total_variation]
-    adaptive_attack.perform_attack(im2,
-                                   mask2,
-                                   mask1,
-                                   loss_metric="l1",
-                                   save_path=root + "adv_results/cityscapes_results/",
-                                   unique_class_list=[8],
-                                   total_iter=1000,
-                                   report_stat_interval=25,
-                                   verbose=False,
-                                   report_stats=True,
-                                   perturbation_mask=pert_mask,
-                                   classification_vs_norm_ratio=1/16,
-                                   early_stopping_accuracy_threshold=1e-3,
-                                   additional_loss_metric=additional_loss,
-                                   additional_loss_weights=[8])
+    # adaptive_attack.perform_attack(im2,
+    #                                mask2,
+    #                                mask1,
+    #                                loss_metric="l1",
+    #                                save_path=root + "adv_results/cityscapes_results/",
+    #                                target_class_list=[target],
+    #                                total_iter=1000,
+    #                                report_stat_interval=25,
+    #                                verbose=False,
+    #                                report_stats=True,
+    #                                perturbation_mask=pert_mask,
+    #                                classification_vs_norm_ratio=1/16,
+    #                                early_stopping_accuracy_threshold=1e-3,
+    #                                additional_loss_metric=additional_loss,
+    #                                additional_loss_weights=[8])
+    adaptive_attack.perform_L1plus_second_attack(im2,
+                                                 mask2,
+                                                 mask1,
+                                                 loss_metric="l1",
+                                                 save_path=root + "adv_results/cityscapes_results/",
+                                                 target_class_list=[target],
+                                                 total_iter=1000,
+                                                 report_stat_interval=25,
+                                                 report_stat=True,
+                                                 classification_vs_norm_ratio=1 / 16,
+                                                 additional_loss_metric=additional_loss,
+                                                 additional_loss_weights=[8]
+                                                 )
+
     # adaptive_attack.perform_attack(im2,
     #                                mask2,
     #                                mask1,
@@ -202,4 +215,3 @@ if __name__ == '__main__':
 
     end_time = time.time()
     print(f">>> attack ended. time elapsed: {end_time - start_time}")
-

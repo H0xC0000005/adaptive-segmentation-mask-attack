@@ -50,6 +50,6 @@ if __name__ == '__main__':
     adaptive_attack.perform_attack(im2,
                                    mask2,
                                    mask1,
-                                   unique_class_list=[0, 1],
+                                   target_class_list=[0, 1],
                                    total_iter=1500,
                                    save_path='adv_results/')

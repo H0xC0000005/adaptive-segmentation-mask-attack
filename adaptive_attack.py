@@ -6,25 +6,19 @@
 """
 from __future__ import annotations
 
-import copy
-import random
 import gc
-import time
-import typing
+import random
 from os.path import isfile
 
-import numpy as np
 import torch
 from torch.autograd import Variable
 
-# from torch.autograd import Variable
-# In-repo imports
-from torch.utils.data import Dataset
-
-from helper_functions import *
 from cityscape_dataset import CityscapeDataset
 from self_defined_loss import *
-import os
+
+
+# from torch.autograd import Variable
+# In-repo imports
 
 
 # random.seed(4)
@@ -179,9 +173,6 @@ class AdaptiveSegmentationMaskAttack:
             loss = loss + channel_loss
         return loss
 
-    def perform_L1plusL2_attack(self):
-        pass
-
     def perform_targeted_universal_attack(self,
                                           segmentation_dataset: CityscapeDataset,
                                           original_class: int,
@@ -240,7 +231,7 @@ class AdaptiveSegmentationMaskAttack:
                                                loss_metric=loss_metric,
                                                initial_perturbation=global_perturbation,
                                                save_samples=False,
-                                               unique_class_list=[target_class],
+                                               target_class_list=[target_class],
                                                total_iter=each_step_iter,
                                                report_stat_interval=report_stat_interval,
                                                verbose=verbose,
@@ -265,28 +256,91 @@ class AdaptiveSegmentationMaskAttack:
             counter += 1
         return global_perturbation
 
+    def perform_L1plus_second_attack(self,
+                                     input_image: torch.Tensor,
+                                     org_mask: torch.Tensor,
+                                     target_mask: torch.Tensor,
+                                     *,
+                                     select_l1_method: typing.Callable = None,
+                                     kwargs_for_metrics: dict[str, typing.Any] = None,
+                                     initial_perturbation: torch.Tensor = None,
+                                     loss_metric: str = "l2",
+                                     additional_loss_metric: typing.Collection = None,
+                                     additional_loss_weights: typing.Collection = None,
+                                     target_class_list: typing.Collection,
+                                     total_iter: int = 500,
+                                     classification_vs_norm_ratio: float = 1 / 16,
+                                     report_stat: bool = True,
+                                     report_stat_interval: int = 25,
+                                     save_samples: bool = True,
+                                     save_path: str = None,
+
+                                     ) -> torch.Tensor:
+        """
+        loss metric, c_vs_norm_ratio are for step L2
+
+        select_l1_method should be a callable that is a closure. a closure is defined here with default args
+        """
+        width, height = input_image.shape[-2], input_image.shape[-1]
+        if select_l1_method is None:
+            select_l1_method = SelectRectL1IntenseRegion(width=width // 16,
+                                                         height=height // 16,
+                                                         number_of_rec=2)
+        first_l1_pert = self.perform_attack(input_image, org_mask, target_mask,
+                                            target_class_list=target_class_list,
+                                            loss_metric="l1",
+                                            total_iter=total_iter,
+                                            classification_vs_norm_ratio=classification_vs_norm_ratio / 16,
+                                            save_samples=False,
+                                            verbose=False,
+                                            report_stats=report_stat,
+                                            report_stat_interval=report_stat_interval
+                                            )
+        selected_l1_mask: torch.Tensor
+        selected_l1_mask = select_l1_method(first_l1_pert)
+        second_pert = self.perform_attack(input_image, org_mask, target_mask,
+                                          target_class_list=target_class_list,
+                                          loss_metric=loss_metric,
+                                          initial_perturbation=initial_perturbation,
+                                          perturbation_mask=selected_l1_mask,
+                                          kwargs_for_metrics=kwargs_for_metrics,
+                                          additional_loss_metric=additional_loss_metric,
+                                          additional_loss_weights=additional_loss_weights,
+                                          total_iter=total_iter,
+                                          classification_vs_norm_ratio=classification_vs_norm_ratio,
+                                          save_samples=save_samples,
+                                          save_path=save_path,
+                                          report_stats=report_stat,
+                                          report_stat_interval=report_stat_interval,
+
+                                          )
+        return second_pert
+
     def perform_attack(self,
                        input_image: torch.Tensor,
                        org_mask: torch.Tensor,
                        target_mask: torch.Tensor | None,
                        *,
+                       target_class_list: typing.Collection,
+
                        kwargs_for_metrics: dict[str, typing.Any] = None,
                        perturbation_mask: torch.Tensor = None,
                        initial_perturbation: torch.Tensor = None,
                        loss_metric: str = "l2",
                        additional_loss_metric: typing.Collection[typing.Callable] = None,
                        additional_loss_weights: typing.Collection[float] = None,
-                       unique_class_list: list | set,
                        total_iter=500,
                        classification_vs_norm_ratio: float = 1 / 16,
                        save_samples: bool = True,
                        save_path: str | None = None,
-                       verbose: bool = True,
+                       verbose: bool = False,
                        report_stats: bool = True,
                        report_stat_interval: int = 10,
                        early_stopping_accuracy_threshold: float | None = 1e-4) -> torch.Tensor:
         assert not (save_path is None and save_samples), f"in perform_attack, " \
                                                          f"attempt to save samples without save path specified."
+        if save_path is not None:
+            save_samples = True
         if kwargs_for_metrics is None:
             kwargs_for_metrics = dict()
         if additional_loss_metric is not None:
@@ -294,7 +348,8 @@ class AdaptiveSegmentationMaskAttack:
                 additional_loss_weights = [1] * len(additional_loss_metric)
         if perturbation_mask is not None:
             perturbation_mask_numpy = perturbation_mask.cpu().numpy()
-            assert org_mask.shape == perturbation_mask.shape, f"in perform_attack, provided perturbation mask with shape " \
+            assert org_mask.shape == perturbation_mask.shape, f"in perform_attack, provided perturbation mask " \
+                                                              f"with shape " \
                                                               f"{perturbation_mask.shape} that is inconsistent " \
                                                               f"with input shape {org_mask.shape}"
             if not self.use_cpu:
@@ -304,7 +359,6 @@ class AdaptiveSegmentationMaskAttack:
         else:
             perturbation_mask_numpy = None
 
-
         def verbose_print(s):
             if verbose:
                 print(s)
@@ -312,13 +366,13 @@ class AdaptiveSegmentationMaskAttack:
         verbose_print(f">>> performing attack on save path {save_path}.")
 
         device = "cpu" if self.use_cpu else self.device_id
-        if len(unique_class_list) == 1:
-            verbose_print(f">>> perform single class attack on device {device} and target class {unique_class_list}")
-        elif len(unique_class_list) > 1:
-            verbose_print(f">>> begin to perform attack on device {device} with unique class list {unique_class_list}.")
+        if len(target_class_list) == 1:
+            verbose_print(f">>> perform single class attack on device {device} and target class {target_class_list}")
+        elif len(target_class_list) > 1:
+            verbose_print(f">>> begin to perform attack on device {device} with unique class list {target_class_list}.")
         else:
             raise ValueError("in perform attack, unique class list is empty")
-        target_classes = unique_class_list.copy()
+        target_classes = target_class_list.copy()
         # try:
         #     target_classes.remove(0)
         # except ValueError:
@@ -335,7 +389,7 @@ class AdaptiveSegmentationMaskAttack:
                 save_image(dec_target_mask, 'target_mask', save_path)
 
         # Unique classes are needed to simplify prediction loss
-        self.unique_classes = unique_class_list
+        self.unique_classes = target_class_list
         # Have a look at calculate_pred_loss to see where this is used
         # select an out-of-sample distribution class
         self.temporary_class_id = random.randint(0, 999)
@@ -360,7 +414,6 @@ class AdaptiveSegmentationMaskAttack:
         image_to_optimize = input_image.unsqueeze(0)
         if not self.use_cpu:
             image_to_optimize = Variable(image_to_optimize.cuda(self.device_id), requires_grad=True)
-        # print("VVVV max of im to optimize: ", torch.max(image_to_optimize), "shape: ", image_to_optimize.shape)
         # add a bit gaussian noise for stabilization
         noise_variance = 1e-8
         # image_to_optimize = image_to_optimize + (noise_variance ** 0.5) * torch.randn(image_to_optimize.shape)
@@ -383,8 +436,6 @@ class AdaptiveSegmentationMaskAttack:
                 image_to_optimize = Variable(image_to_optimize.cuda(self.device_id), requires_grad=True)
             else:
                 image_to_optimize = Variable(image_to_optimize.cpu(), requires_grad=True)
-            # image_to_optimize = image_to_optimize.cuda(self.device_id)
-            # verbose_print(image_to_optimize.device)
 
             # Forward pass
             out: torch.Tensor
@@ -439,9 +490,6 @@ class AdaptiveSegmentationMaskAttack:
             verbose_print(f">>> checking gradient of image to optimize:")
             int_grad: torch.Tensor
             int_grad = image_to_optimize.grad
-            # int_np_grad = int_grad.numpy()
-            # verbose_print(f"max of grad: {np.amax(int_np_grad)}")
-            # verbose_print(f"min of grad: {np.amin(int_np_grad)}")
             verbose_print(f"max of grad: {torch.max(int_grad)}")
             verbose_print(f"min of grad: {torch.max(int_grad)}")
 

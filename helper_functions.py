@@ -6,6 +6,9 @@
 """
 from __future__ import annotations
 
+import typing
+from math import floor
+
 import numpy as np
 from PIL import Image
 import os
@@ -322,3 +325,97 @@ def report_image_statistics(img: np.ndarray | torch.Tensor):
     print(f"max:\t{np.amax(img_as_ndarr)}, min:\t{np.amin(img_as_ndarr)}, mean:\t{mean}, median:\t{median}\n"
           f"type: \t{type(img)}, L1 sum:\t{l1sum}")
 
+
+"""
+utilities for closure. can also be used for other purposes
+"""
+
+
+def compute_conv2d_output_shape(in_size: tuple | list,
+                                kernel_size: tuple | list,
+                                padding: tuple | list = (0, 0),
+                                dilation: tuple | list = (1, 1),
+                                stride: tuple | list = (1, 1),
+                                ) -> tuple:
+    """
+    assume (width, height)
+    """
+    assert len(in_size) == 2 and len(kernel_size) == 2 and len(padding) == 2 and len(dilation) == 2 and \
+           len(stride) == 2, \
+        f"in compute conv2d out size, get one input without len 2. make sure all inputs have len 2."
+    assert dilation[0] > 0 and dilation[1] > 0, f"in compute conv2d out size, get dilation <= 0: {dilation}"
+    res_width = floor((in_size[0] + 2 * padding[0] - dilation[0] * (kernel_size[0] - 1) - 1) / stride[0] + 1)
+    res_height = floor((in_size[1] + 2 * padding[1] - dilation[1] * (kernel_size[1] - 1) - 1) / stride[1] + 1)
+    return res_width, res_height
+
+
+def absolute_index_to_tuple_index(absolute_idx: int,
+                                  shape: tuple) -> tuple:
+    assert len(shape) > 1, f"in absolute idx to tuple idx, received shape with len 1. you dont need this conversion :)"
+    cur_divisor = 1
+    cur_amount = absolute_idx
+    result_size = []
+    for idx in range(1, len(shape)):
+        # size of each elem of dim[0]
+        cur_divisor *= shape[idx]
+    for idx in range(1, len(shape)):
+        cur_idx = cur_amount // cur_divisor
+        cur_amount = cur_amount % cur_divisor
+        cur_divisor /= shape[idx]
+        result_size.append(cur_idx)
+    result_size = tuple(result_size)
+    return result_size
+
+
+"""
+closures for various purposes
+"""
+
+
+class SelectRectL1IntenseRegion:
+    """
+    a closure to select rectangular most intense region for L1 perturbation
+    """
+
+    def __init__(self, height: int, width: int, number_of_rec: int):
+        self.height = height
+        self.width = width
+        self.conv = torch.nn.Conv2d(in_channels=3,
+                                    out_channels=1,
+                                    kernel_size=(width, height),
+                                    bias=False)
+        self.conv.weight.data = torch.ones(size=(width, height))
+        self.number_of_rec = number_of_rec
+        self.device = None
+
+    def __call__(self, *args, **kwargs) -> torch.Tensor:
+        """
+        only expect a single mask as args[0]
+        return a binary mask on that tensor
+        """
+        mask: torch.Tensor
+        mask = args[0]
+        assert isinstance(mask, torch.Tensor), f"in select l1 rect region, only accept torch.Tensor. got" \
+                                               f" {type(mask)}"
+        # change device for this closure
+        self.device = mask.device
+        self.conv.to(device=self.device)
+        conv_mask: torch.Tensor
+        conv_mask = self.conv(mask)
+        conv_shape = tuple(conv_mask.shape)
+        conv_size = compute_conv2d_output_shape(in_size=(conv_mask.shape[-2], conv_mask.shape[-1]),
+                                                kernel_size=(self.width, self.height),
+                                                )
+        # flatten to 1d
+        conv_mask_flattened = conv_mask.flatten()
+        conv_topk_indice = torch.topk(conv_mask_flattened,
+                                      k=self.number_of_rec)
+        result_mask = torch.zeros(size=mask.shape, device=self.device)
+        for flt_idx in conv_topk_indice:
+            # return linear idx to original idx
+            cur_idx = absolute_index_to_tuple_index(flt_idx, conv_shape)
+            # mark result mask with corresponding rectangle
+            result_mask[cur_idx[-2]: cur_idx[-2] + self.width, cur_idx[-1]: cur_idx[-1] + self.height] += 1
+        # clamp all 0+ entries to 1
+        result_mask[result_mask != 0] = 1
+        return result_mask
