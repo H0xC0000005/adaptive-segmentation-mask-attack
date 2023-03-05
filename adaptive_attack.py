@@ -22,6 +22,7 @@ from self_defined_loss import *
 
 
 # random.seed(4)
+from stats_logger import StatsLogger
 
 
 def debug_image_as_arr(arr: np.ndarray, name: str = "test",
@@ -189,6 +190,9 @@ class AdaptiveSegmentationMaskAttack:
                                           early_stopping_accuracy_threshold=1e-3,
                                           limit_perturbation_to_target: bool = True
                                           ) -> torch.Tensor:
+        # hardcoded logging variables
+
+
         global_perturbation = None
         counter = 1
         for sample_tuple in segmentation_dataset:
@@ -348,7 +352,11 @@ class AdaptiveSegmentationMaskAttack:
                        verbose: bool = False,
                        report_stats: bool = True,
                        report_stat_interval: int = 10,
-                       early_stopping_accuracy_threshold: float | None = 1e-4) -> torch.Tensor:
+                       early_stopping_accuracy_threshold: float | None = 1e-4,
+
+                       logger_agent: StatsLogger = None,
+                       logging_variables: list | tuple = None,
+                       ) -> torch.Tensor:
         assert not (save_path is None and save_samples), f"in perform_attack, " \
                                                          f"attempt to save samples without save path specified."
         if save_path is not None:
@@ -380,6 +388,10 @@ class AdaptiveSegmentationMaskAttack:
         def verbose_print(s):
             if verbose:
                 print(s)
+
+        def logv(name: str, var):
+            if logger_agent is not None and name in logging_variables:
+                logger_agent.log_variable(name, var)
 
         verbose_print(f">>> performing attack on save path {save_path}.")
 
@@ -603,6 +615,12 @@ class AdaptiveSegmentationMaskAttack:
                           '\tPixel Accuracy:', pixel_acc,
                           '\n\t\tL2 Dist:', l2_dist,
                           '\tL_inf dist:', linf_dist)
+                logv("iteration", single_iter)
+                logv("iou", iou)
+                logv("pixelwise accuracy", pixel_acc)
+                logv("L2 norm", l2_dist),
+                logv("Linf norm", linf_dist)
+                logv("selected distance", int(dist_loss.cpu().detach()))
 
                 # early stopping via iou, a simple control
                 if early_stopping_accuracy_threshold is not None and \

@@ -2,8 +2,10 @@ import collections
 import copy
 
 import numpy as np
+import pandas as pd
 import torch
 from PIL import Image
+from stats_logger import StatsLogger
 
 import network._deeplab
 # In-repo imports
@@ -146,6 +148,14 @@ if __name__ == '__main__':
     #                                mask1,
     #                                unique_class_list=list(set().union(m1set, m2set)),
     #                                total_iter=200)
+    lg_agt = StatsLogger()
+    logging_var = ("iteration",
+                   "iou",
+                   "pixelwise accuracy",
+                   "L2 norm",
+                   "Linf norm",
+                   "selected distance",)
+    save_path = root + "adv_results/cityscapes_results/"
     mask1 = copy.deepcopy(mask2)
     pert_mask = copy.deepcopy(mask2)
     pert_mask[pert_mask == original] = -1
@@ -160,39 +170,43 @@ if __name__ == '__main__':
                                                  overlap_threshold=200,
                                                  )
 
-    # adaptive_attack.perform_attack(im2,
-    #                                mask2,
-    #                                mask1,
-    #                                loss_metric="l1",
-    #                                save_path=root + "adv_results/cityscapes_results/",
-    #                                target_class_list=[target],
-    #                                total_iter=5,
-    #                                report_stat_interval=25,
-    #                                verbose=False,
-    #                                report_stats=True,
-    #                                perturbation_mask=pert_mask,
-    #                                classification_vs_norm_ratio=1/16,
-    #                                early_stopping_accuracy_threshold=1e-3,
-    #                                additional_loss_metric=additional_loss,
-    #                                additional_loss_weights=[8])
-    adaptive_attack.perform_L1plus_second_attack(im2,
-                                                 mask2,
-                                                 mask1,
-                                                 loss_metric="l1",
-                                                 save_attack_samples=True,
-                                                 save_attack_path=root + "adv_results/cityscapes_results/attack/",
-                                                 save_l1_samples=True,
-                                                 save_l1_path=root + "adv_results/cityscapes_results/l1mask/",
-                                                 target_class_list=[target],
-                                                 total_iter=800,
-                                                 report_stat_interval=50,
-                                                 report_stat=True,
-                                                 classification_vs_norm_ratio=1 / 16,
-                                                 select_l1_method=select_l1_method,
-                                                 additional_loss_metric=additional_loss,
-                                                 additional_loss_weights=[8],
-                                                 step_update_multiplier=8
-                                                 )
+    adaptive_attack.perform_attack(im2,
+                                   mask2,
+                                   mask1,
+                                   loss_metric="l1",
+                                   save_path=save_path,
+                                   target_class_list=[target],
+                                   total_iter=5,
+                                   report_stat_interval=25,
+                                   verbose=False,
+                                   report_stats=False,
+                                   perturbation_mask=pert_mask,
+                                   classification_vs_norm_ratio=1 / 16,
+                                   early_stopping_accuracy_threshold=1e-3,
+                                   additional_loss_metric=additional_loss,
+                                   additional_loss_weights=[8],
+                                   logger_agent=lg_agt,
+                                   logging_variables=logging_var
+                                   )
+
+    # adaptive_attack.perform_L1plus_second_attack(im2,
+    #                                              mask2,
+    #                                              mask1,
+    #                                              loss_metric="l1",
+    #                                              save_attack_samples=True,
+    #                                              save_attack_path=root + "adv_results/cityscapes_results/attack/",
+    #                                              save_l1_samples=True,
+    #                                              save_l1_path=root + "adv_results/cityscapes_results/l1mask/",
+    #                                              target_class_list=[target],
+    #                                              total_iter=800,
+    #                                              report_stat_interval=50,
+    #                                              report_stat=True,
+    #                                              classification_vs_norm_ratio=1 / 16,
+    #                                              select_l1_method=select_l1_method,
+    #                                              additional_loss_metric=additional_loss,
+    #                                              additional_loss_weights=[8],
+    #                                              step_update_multiplier=8
+    #                                              )
 
     # adaptive_attack.perform_attack(im2,
     #                                mask2,
@@ -224,6 +238,8 @@ if __name__ == '__main__':
     #                                loss_metric="l1",
     #                                total_iter=200,
     #                                verbose=False)
-
+    ldf: pd.DataFrame
+    ldf = lg_agt.export_dataframe(logging_var)
+    ldf.to_csv(f"{save_path}single_atk.csv")
     end_time = time.time()
     print(f">>> attack ended. time elapsed: {end_time - start_time}")

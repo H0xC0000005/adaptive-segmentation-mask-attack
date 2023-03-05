@@ -28,6 +28,8 @@ class StatsLogger:
         nested_arr = []
         length_check = None
         for var_name in export_variables:
+            if var_name not in self.log_dict:
+                continue
             cur_slice: list
             cur_slice = self.log_dict[var_name]
             if length_check is None:
@@ -48,5 +50,3 @@ class StatsLogger:
         arr = self.export_dataframe(export_variables=saved_variables)
         # Save array to CSV
         arr.to_csv(save_path)
-
-
