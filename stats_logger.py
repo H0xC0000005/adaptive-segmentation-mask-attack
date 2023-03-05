@@ -36,9 +36,10 @@ class StatsLogger:
                 if len(cur_slice) != length_check:
                     raise ValueError(f"in export ndarr, got following input with len {len(cur_slice)} and name "
                                      f"{var_name} that different from previous len {length_check}")
-                else:
-                    nested_arr.append(cur_slice)
-        df = pd.DataFrame(nested_arr, columns=export_variables)
+            nested_arr.append(cur_slice)
+        df = pd.DataFrame(nested_arr)
+        df = df.transpose(copy=True)
+        df.columns = export_variables
         return df
 
     def save_variables(self,

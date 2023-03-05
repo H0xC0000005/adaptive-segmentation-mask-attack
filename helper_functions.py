@@ -164,7 +164,7 @@ def save_image(im_as_arr: np.ndarray | torch.Tensor, im_name, folder_name: os.Pa
 
     if im_as_arr.shape[0] in (1, 3):
         # assume first channel is greyscale or 3-ch
-        print(im_as_arr.shape)
+        # print(im_as_arr.shape)
         im_as_arr = im_as_arr.transpose((1, 2, 0))
     if folder_name[-1] == "/":
         folder_name = folder_name[:-1]
@@ -226,6 +226,7 @@ def calculate_multiclass_mask_similarity(mask1_raw: np.ndarray | torch.Tensor,
     if iou_mask is not None:
         if isinstance(iou_mask, torch.Tensor):
             iou_mask = iou_mask.cpu().detach().numpy()
+            iou_mask = iou_mask.astype(float)
     if isinstance(mask1_raw, np.ndarray):
         mask1 = mask1_raw
     else:
@@ -234,6 +235,10 @@ def calculate_multiclass_mask_similarity(mask1_raw: np.ndarray | torch.Tensor,
         mask2 = mask2_raw
     else:
         mask2 = mask2_raw.numpy()
+
+    mask1 = mask1.astype(float)
+    mask2 = mask2.astype(float)
+
     m1_uniq = np.unique(mask1)
     m2_uniq = np.unique(mask2)
     # print(f"unique m1 elem: {m1_uniq}")
@@ -264,13 +269,17 @@ def calculate_multiclass_mask_similarity(mask1_raw: np.ndarray | torch.Tensor,
         mask2_single_class: np.ndarray
         mask1_single_class = (mask1 == elem)
         mask2_single_class = (mask2 == elem)
-        mask1_single_class = mask1_single_class.astype(int)
-        mask2_single_class = mask2_single_class.astype(int)
+        mask1_single_class = mask1_single_class.astype(float)
+        mask2_single_class = mask2_single_class.astype(float)
         if iou_mask is not None:
+            # print(iou_mask.dtype)
+            # print(mask2_single_class.dtype)
+            # print(iou_mask.shape)
+            # print(mask2_single_class.shape)
             mask2_single_class *= iou_mask
             mask1_single_class *= iou_mask
-        mask1_single_class = mask1_single_class.astype(int)
-        mask2_single_class = mask2_single_class.astype(int)
+        mask1_single_class = mask1_single_class.astype(float)
+        mask2_single_class = mask2_single_class.astype(float)
 
         intersection_single = mask1_single_class * mask2_single_class
         union_single = mask1_single_class + mask2_single_class
@@ -354,6 +363,8 @@ def absolute_index_to_tuple_index(absolute_idx: int,
     assert len(shape) > 1, f"in absolute idx to tuple idx, received shape with len 1. you dont need this conversion :)"
     cur_divisor = 1
     cur_amount = absolute_idx
+    # print(shape)
+    # print(cur_amount, "<<")
     result_size = []
     for idx in range(1, len(shape)):
         # size of each elem of dim[0]
@@ -362,9 +373,39 @@ def absolute_index_to_tuple_index(absolute_idx: int,
         cur_idx = cur_amount // cur_divisor
         cur_amount = cur_amount % cur_divisor
         cur_divisor /= shape[idx]
-        result_size.append(cur_idx)
+        # print(f"cur amount: {cur_amount}")
+        # print(f"cur div: {cur_divisor}")
+        # print(f"cur idx: {cur_idx}")
+        result_size.append(int(cur_idx))
+    result_size.append(int(cur_amount))
     result_size = tuple(result_size)
     return result_size
+
+
+def l1d(t1: np.ndarray | torch.Tensor | tuple | list,
+        t2: np.ndarray | torch.Tensor | tuple | list) -> float:
+    """
+    make use of pointwise computation of
+    """
+
+    def to_tensor(x) -> torch.Tensor:
+        if isinstance(x, list) or isinstance(x, tuple):
+            return torch.Tensor(x)
+        elif isinstance(x, np.ndarray):
+            return torch.from_numpy(x)
+        elif isinstance(x, torch.Tensor):
+            return x
+        else:
+            raise TypeError(f"in to_tensor, provided type {type(x)} that not supported (supported: ndarr/tensor/list/"
+                            f"tuple)")
+
+    t1 = to_tensor(t1)
+    t2 = to_tensor(t2)
+    diff = t1 - t2
+    diff = diff.cpu().detach()
+    diff = torch.abs(diff)
+    diff_sum = torch.sum(diff)
+    return float(diff_sum)
 
 
 """
@@ -377,45 +418,94 @@ class SelectRectL1IntenseRegion:
     a closure to select rectangular most intense region for L1 perturbation
     """
 
-    def __init__(self, height: int, width: int, number_of_rec: int):
-        self.height = height
+    def __init__(self, height: int,
+                 width: int,
+                 number_of_rec: int,
+                 in_channels: int = 3,
+                 allow_overlap: bool = True,
+                 overlap_threshold: float = None):
+        if not allow_overlap and overlap_threshold is None:
+            overlap_threshold = (width + height) / (2 * 20)
+        self.overlap_threshold = overlap_threshold
+        self.allow_overlap = allow_overlap
         self.width = width
-        self.conv = torch.nn.Conv2d(in_channels=3,
+        self.height = height
+        self.conv = torch.nn.Conv2d(in_channels=in_channels,
                                     out_channels=1,
                                     kernel_size=(width, height),
                                     bias=False)
-        self.conv.weight.data = torch.ones(size=(width, height))
+        self.conv.weight.data = torch.ones(size=(1, in_channels, width, height))
         self.number_of_rec = number_of_rec
         self.device = None
 
     def __call__(self, *args, **kwargs) -> torch.Tensor:
         """
-        only expect a single mask as args[0]
+        only expect a single mask as args[0]. mask should be 3-dim (not batched).
         return a binary mask on that tensor
         """
+        # print(f"call select rect")
+
+        print(f">> called select rect region: \n"
+              f"height: {self.width}, width: {self.height}, num: {self.number_of_rec}\n"
+              f"allow?: {self.allow_overlap}, thres: {self.overlap_threshold}")
         mask: torch.Tensor
         mask = args[0]
+
         assert isinstance(mask, torch.Tensor), f"in select l1 rect region, only accept torch.Tensor. got" \
                                                f" {type(mask)}"
+        assert len(mask.shape) in (2, 3), f"in select l1 rect region, get mask with shape {mask.shape}. only accept " \
+                                          f"unbached greyscale or color"
+        # 2d to 3d
+        if len(mask.shape) == 2:
+            mask = mask.unsqueeze(0)
         # change device for this closure
         self.device = mask.device
         self.conv.to(device=self.device)
+        # print(mask.shape)
         conv_mask: torch.Tensor
         conv_mask = self.conv(mask)
-        conv_shape = tuple(conv_mask.shape)
-        conv_size = compute_conv2d_output_shape(in_size=(conv_mask.shape[-2], conv_mask.shape[-1]),
-                                                kernel_size=(self.width, self.height),
-                                                )
+        conv_mask = torch.squeeze(conv_mask, 0)
+        print(conv_mask.shape)
+        # print(conv_mask)
+        conv_size = conv_mask.shape
         # flatten to 1d
         conv_mask_flattened = conv_mask.flatten()
-        conv_topk_indice = torch.topk(conv_mask_flattened,
-                                      k=self.number_of_rec)
-        result_mask = torch.zeros(size=mask.shape, device=self.device)
-        for flt_idx in conv_topk_indice:
-            # return linear idx to original idx
-            cur_idx = absolute_index_to_tuple_index(flt_idx, conv_shape)
-            # mark result mask with corresponding rectangle
-            result_mask[cur_idx[-2]: cur_idx[-2] + self.width, cur_idx[-1]: cur_idx[-1] + self.height] += 1
-        # clamp all 0+ entries to 1
-        result_mask[result_mask != 0] = 1
-        return result_mask
+
+        """
+        select k most intense regions. by default attempt 3*num_of_rec times 
+        and if still can't select over then give up
+        """
+        result_mask = torch.zeros(size=mask.shape[-2:], device=self.device)
+        if self.allow_overlap:
+            conv_topk_indices = torch.topk(conv_mask_flattened,
+                                           k=self.number_of_rec).indices
+            # print(conv_topk_indices)
+            # print(f"conv size: {conv_size}")
+            selected_rec_pos = set()
+            for flt_idx in conv_topk_indices:
+                # return linear idx to original idx
+                cur_idx = absolute_index_to_tuple_index(flt_idx, conv_size)
+                selected_rec_pos.add(cur_idx)
+                # mark result mask with corresponding rectangle
+                result_mask[cur_idx[-2]: cur_idx[-2] + self.height, cur_idx[-1]: cur_idx[-1] + self.width] += 1
+            # clamp all 0+ entries to 1
+            result_mask[result_mask != 0] = 1
+            return result_mask
+        else:
+            result_indices = []
+            count = 0
+            # attempt for 3 * k times. if exhausted, considered failure
+            while len(result_indices) < self.number_of_rec and count < 3 * self.number_of_rec:
+                conv_mask_flattened = conv_mask.flatten()
+                conv_top_index = torch.topk(conv_mask_flattened,
+                                            k=1).indices
+                cur_idx = absolute_index_to_tuple_index(conv_top_index, conv_size)
+                print(cur_idx)
+                result_indices.append(conv_top_index)
+                # clear out adjacent area
+                conv_mask[cur_idx[-2] - self.overlap_threshold + 1: cur_idx[-2] + self.overlap_threshold,
+                          cur_idx[-1] - self.overlap_threshold + 1: cur_idx[-1] + self.overlap_threshold] = -1000000
+                result_mask[cur_idx[-2]: cur_idx[-2] + self.height, cur_idx[-1]: cur_idx[-1] + self.width] += 1
+            result_mask[result_mask != 0] = 1
+            return result_mask
+

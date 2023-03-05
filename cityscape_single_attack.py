@@ -153,13 +153,20 @@ if __name__ == '__main__':
     pert_mask[pert_mask == -1] = 1
     mask1[mask1 == original] = target
     additional_loss = [total_variation]
+    select_l1_method = SelectRectL1IntenseRegion(width=150,
+                                                 height=100,
+                                                 number_of_rec=8,
+                                                 allow_overlap=False,
+                                                 overlap_threshold=200,
+                                                 )
+
     # adaptive_attack.perform_attack(im2,
     #                                mask2,
     #                                mask1,
     #                                loss_metric="l1",
     #                                save_path=root + "adv_results/cityscapes_results/",
     #                                target_class_list=[target],
-    #                                total_iter=1000,
+    #                                total_iter=5,
     #                                report_stat_interval=25,
     #                                verbose=False,
     #                                report_stats=True,
@@ -172,14 +179,19 @@ if __name__ == '__main__':
                                                  mask2,
                                                  mask1,
                                                  loss_metric="l1",
-                                                 save_path=root + "adv_results/cityscapes_results/",
+                                                 save_attack_samples=True,
+                                                 save_attack_path=root + "adv_results/cityscapes_results/attack/",
+                                                 save_l1_samples=True,
+                                                 save_l1_path=root + "adv_results/cityscapes_results/l1mask/",
                                                  target_class_list=[target],
-                                                 total_iter=1000,
-                                                 report_stat_interval=25,
+                                                 total_iter=800,
+                                                 report_stat_interval=50,
                                                  report_stat=True,
                                                  classification_vs_norm_ratio=1 / 16,
+                                                 select_l1_method=select_l1_method,
                                                  additional_loss_metric=additional_loss,
-                                                 additional_loss_weights=[8]
+                                                 additional_loss_weights=[8],
+                                                 step_update_multiplier=8
                                                  )
 
     # adaptive_attack.perform_attack(im2,

@@ -270,10 +270,13 @@ class AdaptiveSegmentationMaskAttack:
                                      target_class_list: typing.Collection,
                                      total_iter: int = 500,
                                      classification_vs_norm_ratio: float = 1 / 16,
+                                     step_update_multiplier: float = 4,
                                      report_stat: bool = True,
                                      report_stat_interval: int = 25,
-                                     save_samples: bool = True,
-                                     save_path: str = None,
+                                     save_l1_samples: bool = False,
+                                     save_l1_path: str = None,
+                                     save_attack_samples: bool = False,
+                                     save_attack_path: str = None,
 
                                      ) -> torch.Tensor:
         """
@@ -285,19 +288,26 @@ class AdaptiveSegmentationMaskAttack:
         if select_l1_method is None:
             select_l1_method = SelectRectL1IntenseRegion(width=width // 16,
                                                          height=height // 16,
-                                                         number_of_rec=2)
+                                                         number_of_rec=32)
+        print(input_image.shape, org_mask.shape, target_mask.shape)
+
         first_l1_pert = self.perform_attack(input_image, org_mask, target_mask,
                                             target_class_list=target_class_list,
                                             loss_metric="l1",
                                             total_iter=total_iter,
-                                            classification_vs_norm_ratio=classification_vs_norm_ratio / 16,
-                                            save_samples=False,
+                                            classification_vs_norm_ratio=classification_vs_norm_ratio / 2,
+                                            save_samples=save_l1_samples,
                                             verbose=False,
                                             report_stats=report_stat,
-                                            report_stat_interval=report_stat_interval
+                                            report_stat_interval=report_stat_interval,
+                                            save_path=save_l1_path,
+
                                             )
         selected_l1_mask: torch.Tensor
         selected_l1_mask = select_l1_method(first_l1_pert)
+        print(f"-------------------------------- l1 completed")
+        print(type(selected_l1_mask))
+        print(input_image.shape, org_mask.shape, target_mask.shape)
         second_pert = self.perform_attack(input_image, org_mask, target_mask,
                                           target_class_list=target_class_list,
                                           loss_metric=loss_metric,
@@ -308,8 +318,9 @@ class AdaptiveSegmentationMaskAttack:
                                           additional_loss_weights=additional_loss_weights,
                                           total_iter=total_iter,
                                           classification_vs_norm_ratio=classification_vs_norm_ratio,
-                                          save_samples=save_samples,
-                                          save_path=save_path,
+                                          step_update_multiplier=step_update_multiplier,
+                                          save_samples=save_attack_samples,
+                                          save_path=save_attack_path,
                                           report_stats=report_stat,
                                           report_stat_interval=report_stat_interval,
 
@@ -331,6 +342,7 @@ class AdaptiveSegmentationMaskAttack:
                        additional_loss_weights: typing.Collection[float] = None,
                        total_iter=500,
                        classification_vs_norm_ratio: float = 1 / 16,
+                       step_update_multiplier: float = 4,
                        save_samples: bool = True,
                        save_path: str | None = None,
                        verbose: bool = False,
@@ -348,7 +360,13 @@ class AdaptiveSegmentationMaskAttack:
                 additional_loss_weights = [1] * len(additional_loss_metric)
         if perturbation_mask is not None:
             perturbation_mask_numpy = perturbation_mask.cpu().numpy()
-            assert org_mask.shape == perturbation_mask.shape, f"in perform_attack, provided perturbation mask " \
+            """
+            work by feature: tensor pointwise mul
+            if ts1 and ts2 doesn't have same dim, they are matched from tail to head
+            eg. [1, 2, 3, 4] can multiply with [3, 4]
+            hence here require pert mask to have same dim as mask
+            """
+            assert perturbation_mask.shape == org_mask.shape, f"in perform_attack, provided perturbation mask " \
                                                               f"with shape " \
                                                               f"{perturbation_mask.shape} that is inconsistent " \
                                                               f"with input shape {org_mask.shape}"
@@ -457,6 +475,12 @@ class AdaptiveSegmentationMaskAttack:
             # Total loss
             pred_loss_weight = 1
             dist_loss_weight = pred_loss_weight / classification_vs_norm_ratio
+
+            """
+            update loss, targeted & untargeted have different loss.
+            normalized to have total weight of 1
+            """
+            total_weight = 1 + dist_loss_weight
             if target_mask is not None:
                 # TODO: refactor +- signs of both losses, - sign for weight loss really correct?
                 # positive dist loss, positive pred loss
@@ -464,7 +488,6 @@ class AdaptiveSegmentationMaskAttack:
             else:
                 # positive dist loss, negative untargeted loss
                 out_grad = - pred_loss_weight * pred_loss + dist_loss_weight * dist_loss
-
             if additional_loss_metric is not None:
                 kwargs_for_metrics["tensor1"] = pred_out
                 kwargs_for_metrics["tensor2"] = target_mask
@@ -475,6 +498,9 @@ class AdaptiveSegmentationMaskAttack:
                                                   f" only support callables")
                     # by default loss is positive
                     out_grad += loss_name(kwargs_for_metrics)
+                    total_weight += cur_weight
+            # normalize
+            out_grad /= (total_weight / step_update_multiplier)
 
             out_grad = torch.sum(out_grad)
             """
@@ -495,6 +521,7 @@ class AdaptiveSegmentationMaskAttack:
 
             # apply hardcoded mask on perturbation. by default perturbation "bumps into" mask
             # and clamped (as backprop first and update).
+
             if perturbation_mask is None:
                 cur_pert = image_to_optimize.grad * pert_mul
             else:
