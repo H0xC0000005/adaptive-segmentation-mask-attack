@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import typing
 import numpy as np
 import pandas as pd
@@ -21,8 +23,8 @@ class StatsLogger:
             else:
                 self.log_dict[variable_name].append(value)
 
-    def export_ndarray(self,
-                       export_variables: typing.Collection[str]) -> np.ndarray:
+    def export_dataframe(self,
+                         export_variables: list | tuple) -> pd.DataFrame:
         nested_arr = []
         length_check = None
         for var_name in export_variables:
@@ -36,14 +38,14 @@ class StatsLogger:
                                      f"{var_name} that different from previous len {length_check}")
                 else:
                     nested_arr.append(cur_slice)
-        arr = np.array(nested_arr)
-        return arr
+        df = pd.DataFrame(nested_arr, columns=export_variables)
+        return df
 
     def save_variables(self,
-                       saved_variables: typing.Collection[str],
+                       saved_variables: list | tuple,
                        save_path: str) -> None:
-        arr = self.export_ndarray(export_variables=saved_variables)
+        arr = self.export_dataframe(export_variables=saved_variables)
         # Save array to CSV
-        np.savetxt(save_path, arr, delimiter=',', header=','.join(saved_variables), comments='')
+        arr.to_csv(save_path)
 
 
