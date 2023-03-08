@@ -15,6 +15,7 @@ from torch.autograd import Variable
 
 from cityscape_dataset import CityscapeDataset
 from self_defined_loss import *
+import re
 
 
 # from torch.autograd import Variable
@@ -49,8 +50,23 @@ class AdaptiveSegmentationMaskAttack:
         # print(f"device of self model: {self.model.device}")
 
     @staticmethod
-    def update_perturbation_multiplier(beta, tau, iou):
+    def update_perturbation_multiplier(option: str, beta, tau, iou) -> float:
+        if option is None:
+            return beta / 2
+        if "incr" in option:
+            return AdaptiveSegmentationMaskAttack.update_perturbation_multiplier_incrLR(beta, tau, iou)
+        if "decr" in option:
+            return AdaptiveSegmentationMaskAttack.update_perturbation_multiplier_decrLR(beta, tau, iou)
+        raise ValueError(f"in function update_perturbation_multiplier, get option {option} that is invalid. "
+                         f"it should be None, containing 'incr' or 'decr'.")
+
+    @staticmethod
+    def update_perturbation_multiplier_incrLR(beta, tau, iou):
         return beta * iou + tau
+
+    @staticmethod
+    def update_perturbation_multiplier_decrLR(beta, tau, iou):
+        return beta * (1-iou) + tau
 
     @staticmethod
     def calculate_loss_facade(x, y, metric: str):
@@ -82,22 +98,24 @@ class AdaptiveSegmentationMaskAttack:
 
     @staticmethod
     def calculate_l2_loss(x, y):
-        loss = (x - y) ** 2
-        # print(loss)
-        # print(f"min of loss: {np.amin(loss)}, max of loss: {np.amax(loss)}")
-        for a in reversed(range(1, loss.dim())):
-            loss = loss.sum(a, keepdim=False)
-        loss = loss.sum()
+        # loss = (x - y) ** 2
+        # # print(loss)
+        # # print(f"min of loss: {np.amin(loss)}, max of loss: {np.amax(loss)}")
+        # for a in reversed(range(1, loss.dim())):
+        #     loss = loss.sum(a, keepdim=False)
+        # loss = loss.sum()
+        loss = torch.dist(x, y, p=2).item()
         return loss
 
     @staticmethod
     def calculate_l1_loss(x, y):
-        loss = torch.abs(x - y)
-        # print(loss)
-        # print(f"min of loss: {np.amin(loss)}, max of loss: {np.amax(loss)}")
-        for a in reversed(range(1, loss.dim())):
-            loss = loss.sum(a, keepdim=False)
-        loss = loss.sum()
+        # loss = torch.abs(x - y)
+        # # print(loss)
+        # # print(f"min of loss: {np.amin(loss)}, max of loss: {np.amax(loss)}")
+        # for a in reversed(range(1, loss.dim())):
+        #     loss = loss.sum(a, keepdim=False)
+        # loss = loss.sum()
+        loss = torch.dist(x, y, p=1).item()
         return loss
 
     @staticmethod
@@ -353,14 +371,29 @@ class AdaptiveSegmentationMaskAttack:
                        report_stats: bool = True,
                        report_stat_interval: int = 10,
                        early_stopping_accuracy_threshold: float | None = 1e-4,
+                       dynamic_LR_option: str = None,
 
                        logger_agent: StatsLogger = None,
                        logging_variables: list | tuple = None,
                        ) -> torch.Tensor:
+
         assert not (save_path is None and save_samples), f"in perform_attack, " \
                                                          f"attempt to save samples without save path specified."
         if save_path is not None:
             save_samples = True
+            if target_mask is not None:
+                save_path += "T_"
+            else:
+                save_path += "U_"
+            save_path += f"{total_iter}_LR{step_update_multiplier}_{loss_metric}_"
+            if perturbation_mask is not None:
+                save_path += f"ptmask_"
+            if additional_loss_metric is not None:
+                save_path += f"metc_"
+            if dynamic_LR_option is not None:
+                save_path += f"{dynamic_LR_option}_"
+            save_path += "/"
+
         if kwargs_for_metrics is None:
             kwargs_for_metrics = dict()
         if additional_loss_metric is not None:
@@ -427,7 +460,7 @@ class AdaptiveSegmentationMaskAttack:
             self.temporary_class_id = random.randint(0, 999)
 
         # Assume there is no overlapping part for the first iteration
-        pert_mul = self.update_perturbation_multiplier(self.beta, self.tau, 0)
+        pert_mul = self.update_perturbation_multiplier(dynamic_LR_option, self.beta, self.tau, 0)
         if target_mask is not None:
             # Get a copy of target mask to use it for stats
             target_mask_numpy = copy.deepcopy(target_mask).numpy()
@@ -580,7 +613,7 @@ class AdaptiveSegmentationMaskAttack:
             # Distances
             l2_dist, linf_dist = calculate_image_distance(org_im_copy, perturbed_im)
             # Update perturbation multiplier
-            pert_mul = self.update_perturbation_multiplier(self.beta, self.tau, iou)
+            pert_mul = self.update_perturbation_multiplier(dynamic_LR_option, self.beta, self.tau, iou)
 
             # Update image to optimize and ensure boxt constraint
             verbose_print(f">>> checking type of perturbed im and im to op")
@@ -620,7 +653,10 @@ class AdaptiveSegmentationMaskAttack:
                 logv("pixelwise accuracy", pixel_acc)
                 logv("L2 norm", l2_dist),
                 logv("Linf norm", linf_dist)
-                logv("selected distance", int(dist_loss.cpu().detach()))
+                if isinstance(dist_loss, torch.Tensor):
+                    logv("selected distance", int(dist_loss.cpu().detach()))
+                else:
+                    logv("selected distance", int(dist_loss))
 
                 # early stopping via iou, a simple control
                 if early_stopping_accuracy_threshold is not None and \
@@ -632,6 +668,9 @@ class AdaptiveSegmentationMaskAttack:
                     break
                 else:
                     prev_iou = iou
+
+        if save_samples:
+            logger_agent.save_variables(logging_variables, save_path + "atk.csv")
         # unormalized final diff as perturbation. throw it back
         final_diff = save_batch_image_difference(image_to_optimize.data,
                                                  org_im_copy.data,

@@ -154,7 +154,7 @@ if __name__ == '__main__':
                    "pixelwise accuracy",
                    "L2 norm",
                    "Linf norm",
-                   "selected distance",)
+                   "selected kd distance",)
     save_path = root + "adv_results/cityscapes_results/"
     mask1 = copy.deepcopy(mask2)
     pert_mask = copy.deepcopy(mask2)
@@ -163,6 +163,7 @@ if __name__ == '__main__':
     pert_mask[pert_mask == -1] = 1
     mask1[mask1 == original] = target
     additional_loss = [total_variation]
+    dynamic_LR_option = None
     select_l1_method = SelectRectL1IntenseRegion(width=150,
                                                  height=100,
                                                  number_of_rec=8,
@@ -176,17 +177,19 @@ if __name__ == '__main__':
                                    loss_metric="l1",
                                    save_path=save_path,
                                    target_class_list=[target],
-                                   total_iter=5,
-                                   report_stat_interval=25,
+                                   total_iter=800,
+                                   report_stat_interval=50,
                                    verbose=False,
                                    report_stats=False,
                                    perturbation_mask=pert_mask,
                                    classification_vs_norm_ratio=1 / 16,
-                                   early_stopping_accuracy_threshold=1e-3,
+                                   early_stopping_accuracy_threshold=None,
                                    additional_loss_metric=additional_loss,
                                    additional_loss_weights=[8],
                                    logger_agent=lg_agt,
-                                   logging_variables=logging_var
+                                   logging_variables=logging_var,
+                                   step_update_multiplier=8,
+                                   dynamic_LR_option=dynamic_LR_option,
                                    )
 
     # adaptive_attack.perform_L1plus_second_attack(im2,
@@ -240,6 +243,10 @@ if __name__ == '__main__':
     #                                verbose=False)
     ldf: pd.DataFrame
     ldf = lg_agt.export_dataframe(logging_var)
-    ldf.to_csv(f"{save_path}single_atk.csv")
+    # ldf.to_csv(f"{save_path}single_atk.csv")
+
+    # ldf_t = ldf.T
+    # # ldf_t.plot(kind="line", x=ldf_t.index)
+    # ldf_t.plot(kind="line")
     end_time = time.time()
     print(f">>> attack ended. time elapsed: {end_time - start_time}")

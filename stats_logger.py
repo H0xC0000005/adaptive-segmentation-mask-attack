@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import typing
 import numpy as np
 import pandas as pd
@@ -27,8 +28,11 @@ class StatsLogger:
                          export_variables: list | tuple) -> pd.DataFrame:
         nested_arr = []
         length_check = None
+        var_copy = list(copy.deepcopy(export_variables))
         for var_name in export_variables:
             if var_name not in self.log_dict:
+                var_copy.remove(var_name)
+                print(f"WARNING: variable {var_name} is not present in logger during logger export dataframe.")
                 continue
             cur_slice: list
             cur_slice = self.log_dict[var_name]
@@ -41,7 +45,7 @@ class StatsLogger:
             nested_arr.append(cur_slice)
         df = pd.DataFrame(nested_arr)
         df = df.transpose(copy=True)
-        df.columns = export_variables
+        df.columns = var_copy
         return df
 
     def save_variables(self,
