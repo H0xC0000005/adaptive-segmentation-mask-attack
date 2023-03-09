@@ -379,20 +379,21 @@ class AdaptiveSegmentationMaskAttack:
 
         assert not (save_path is None and save_samples), f"in perform_attack, " \
                                                          f"attempt to save samples without save path specified."
+        save_suffix = ""
         if save_path is not None:
             save_samples = True
             if target_mask is not None:
-                save_path += "T_"
+                save_suffix += "T_"
             else:
-                save_path += "U_"
-            save_path += f"{total_iter}_LR{step_update_multiplier}_{loss_metric}_"
+                save_suffix += "U_"
+            save_suffix += f"{total_iter}_LR{step_update_multiplier}_{loss_metric}_"
             if perturbation_mask is not None:
-                save_path += f"ptmask_"
+                save_suffix += f"ptmask_"
             if additional_loss_metric is not None:
-                save_path += f"metc_"
+                save_suffix += f"metc_"
             if dynamic_LR_option is not None:
-                save_path += f"{dynamic_LR_option}_"
-            save_path += "/"
+                save_suffix += f"{dynamic_LR_option}_"
+            save_path += save_suffix + "/"
 
         if kwargs_for_metrics is None:
             kwargs_for_metrics = dict()
@@ -670,7 +671,7 @@ class AdaptiveSegmentationMaskAttack:
                     prev_iou = iou
 
         if save_samples:
-            logger_agent.save_variables(logging_variables, save_path + "atk.csv")
+            logger_agent.save_variables(logging_variables, save_path + f"{save_suffix}.csv")
         # unormalized final diff as perturbation. throw it back
         final_diff = save_batch_image_difference(image_to_optimize.data,
                                                  org_im_copy.data,
