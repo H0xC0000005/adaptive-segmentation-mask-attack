@@ -154,7 +154,7 @@ if __name__ == '__main__':
                    "pixelwise accuracy",
                    "L2 norm",
                    "Linf norm",
-                   "selected kd distance",)
+                   "selected distance",)
     save_path = root + "adv_results/cityscapes_results/"
     mask1 = copy.deepcopy(mask2)
     pert_mask = copy.deepcopy(mask2)
@@ -177,11 +177,11 @@ if __name__ == '__main__':
                                    loss_metric="l1",
                                    save_path=save_path,
                                    target_class_list=[target],
-                                   total_iter=800,
+                                   total_iter=1600,
                                    report_stat_interval=50,
                                    verbose=False,
                                    report_stats=False,
-                                   perturbation_mask=pert_mask,
+                                   perturbation_mask=None,
                                    classification_vs_norm_ratio=1 / 16,
                                    early_stopping_accuracy_threshold=None,
                                    additional_loss_metric=additional_loss,
