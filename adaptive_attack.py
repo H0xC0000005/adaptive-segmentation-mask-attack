@@ -391,6 +391,8 @@ class AdaptiveSegmentationMaskAttack:
                 save_suffix += f"ptmask_"
             if additional_loss_metric is not None:
                 save_suffix += f"metc_"
+                if additional_loss_weights is not None:
+                    save_suffix += f"w{additional_loss_weights}_"
             if dynamic_LR_option is not None:
                 save_suffix += f"{dynamic_LR_option}_"
             save_path += save_suffix + "/"
@@ -655,9 +657,9 @@ class AdaptiveSegmentationMaskAttack:
                 logv("L2 norm", l2_dist),
                 logv("Linf norm", linf_dist)
                 if isinstance(dist_loss, torch.Tensor):
-                    logv("selected distance", int(dist_loss.cpu().detach()))
+                    logv("selected distance", dist_loss.cpu().detach())
                 else:
-                    logv("selected distance", int(dist_loss))
+                    logv("selected distance", dist_loss)
 
                 # early stopping via iou, a simple control
                 if early_stopping_accuracy_threshold is not None and \

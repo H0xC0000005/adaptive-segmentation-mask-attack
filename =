@@ -1,3 +1,1 @@
-Collecting torchvision
-  Downloading https://files.pythonhosted.org/packages/38/03/c963ecdf98fae15286437ae533750e2c39e988b7d8c86fad4dbc73a3a146/torchvision-0.11.2-cp36-cp36m-manylinux1_x86_64.whl (23.3MB)
-Collecting 0.14.1
+Requirement already satisfied: Pillow in ./venv2/lib/python3.8/site-packages (9.3.0)

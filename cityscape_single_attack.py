@@ -3,6 +3,7 @@ import copy
 
 import numpy as np
 import pandas as pd
+import setuptools.wheel
 import torch
 from PIL import Image
 from stats_logger import StatsLogger
@@ -126,16 +127,19 @@ if __name__ == '__main__':
         m1set.remove(255)
     except KeyError:
         pass
-    # m1set = CityscapeDataset.normalize_label(m1set)
     m2list = np.unique(mask2.numpy())
     print(f"mask2 unique check in main: {np.unique(m2list)}")
-    # m2set = CityscapeDataset.encode_full_class_array(m2list)
+    m2set = CityscapeDataset.encode_full_class_array(m2list)
     m2set = set(m2list)
-    # m2set = CityscapeDataset.normalize_label(m2set)
     try:
         m2set.remove(255)
     except KeyError:
         pass
+    set_union = set.union(m1set, m2set)
+    set_intersection = set.intersection(m1set, m2set)
+    print(f"union elements of m1 m2: {set_union}")
+    print(f"intersection elements of m1 m2: {set_intersection}")
+
     """
     attack sandbox
     """
@@ -155,15 +159,18 @@ if __name__ == '__main__':
                    "L2 norm",
                    "Linf norm",
                    "selected distance",)
-    save_path = root + "adv_results/cityscapes_results/"
-    mask1 = copy.deepcopy(mask2)
+    save_path = root + "adv_results/cityscapes_TO_results/"
+
+    # hiding attack
+    # mask1 = copy.deepcopy(mask2)
+    # mask1[mask1 == original] = target
+
     pert_mask = copy.deepcopy(mask2)
     pert_mask[pert_mask == original] = -1
     pert_mask[pert_mask != -1] = 0
     pert_mask[pert_mask == -1] = 1
-    mask1[mask1 == original] = target
     additional_loss = [total_variation]
-    dynamic_LR_option = None
+    dynamic_LR_option = "incr"
     select_l1_method = SelectRectL1IntenseRegion(width=150,
                                                  height=100,
                                                  number_of_rec=8,
@@ -174,21 +181,21 @@ if __name__ == '__main__':
     adaptive_attack.perform_attack(im2,
                                    mask2,
                                    mask1,
-                                   loss_metric="l1",
+                                   loss_metric="l2",
                                    save_path=save_path,
                                    target_class_list=[target],
                                    total_iter=1600,
                                    report_stat_interval=50,
                                    verbose=False,
                                    report_stats=False,
-                                   perturbation_mask=None,
+                                   perturbation_mask=pert_mask,
                                    classification_vs_norm_ratio=1 / 16,
                                    early_stopping_accuracy_threshold=None,
-                                   additional_loss_metric=additional_loss,
-                                   additional_loss_weights=[8],
+                                   additional_loss_metric=None,
+                                   additional_loss_weights=[16],
                                    logger_agent=lg_agt,
                                    logging_variables=logging_var,
-                                   step_update_multiplier=8,
+                                   step_update_multiplier=32,
                                    dynamic_LR_option=dynamic_LR_option,
                                    )
 
@@ -211,17 +218,6 @@ if __name__ == '__main__':
     #                                              step_update_multiplier=8
     #                                              )
 
-    # adaptive_attack.perform_attack(im2,
-    #                                mask2,
-    #                                mask1,
-    #                                unique_class_list=[0, vanishing_class],
-    #                                total_iter=200)
-    # adaptive_attack.perform_attack(im2,
-    #                                mask2,
-    #                                mask1,
-    #                                unique_class_list=[0, 7, 11, 13],
-    #                                total_iter=200,
-    #                                verbose=True)
     # mask1 = np.ones(mask1.shape, dtype='uint8')
     # print(f"mask1 created with shape {mask1.shape}")
     # mask1 = torch.from_numpy(mask1)
