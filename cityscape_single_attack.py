@@ -159,7 +159,7 @@ if __name__ == '__main__':
                    "L2 norm",
                    "Linf norm",
                    "selected distance",)
-    save_path = root + "adv_results/cityscapes_TO_results/"
+    save_path = root + "adv_results/cityscapes_UO_results/"
 
     # hiding attack
     # mask1 = copy.deepcopy(mask2)
@@ -180,23 +180,23 @@ if __name__ == '__main__':
 
     adaptive_attack.perform_attack(im2,
                                    mask2,
-                                   mask1,
-                                   loss_metric="l2",
+                                   None,
+                                   loss_metric="l1",
                                    save_path=save_path,
-                                   target_class_list=[target],
+                                   target_class_list=set_intersection,
                                    total_iter=1600,
                                    report_stat_interval=50,
                                    verbose=False,
                                    report_stats=False,
                                    perturbation_mask=pert_mask,
-                                   classification_vs_norm_ratio=1 / 16,
+                                   classification_vs_norm_ratio=1 / 4,
                                    early_stopping_accuracy_threshold=None,
                                    additional_loss_metric=None,
                                    additional_loss_weights=[16],
                                    logger_agent=lg_agt,
                                    logging_variables=logging_var,
-                                   step_update_multiplier=32,
-                                   dynamic_LR_option=dynamic_LR_option,
+                                   step_update_multiplier=64,
+                                   dynamic_LR_option=None,
                                    )
 
     # adaptive_attack.perform_L1plus_second_attack(im2,

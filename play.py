@@ -27,8 +27,11 @@ lg.log_variable(name2, "a")
 lg.log_variable(name2, "b")
 lg.log_variable(name2, "lambda")
 df1 = lg.export_dataframe((name1, name2))
-print(df1)
+# print(df1)
 lg.save_variables((name1, name2), "adv_results/1test.csv")
+
+print(1/12)
+
 
 # res = sir(ts)
 # print(tsc)

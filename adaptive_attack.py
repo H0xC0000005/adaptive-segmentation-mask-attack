@@ -74,6 +74,7 @@ class AdaptiveSegmentationMaskAttack:
                               "l2": AdaptiveSegmentationMaskAttack.calculate_l2_loss,
                               "linf": AdaptiveSegmentationMaskAttack.calculate_linf_loss,
                               "l0": AdaptiveSegmentationMaskAttack.calculate_l0_loss,
+                              "l4": AdaptiveSegmentationMaskAttack.calculate_l4_loss,
                               }
         mtr = metric.lower()
         if mtr not in metric2method_mapp:
@@ -84,17 +85,23 @@ class AdaptiveSegmentationMaskAttack:
 
     @staticmethod
     def calculate_l0_loss(x, y, *, threshold=1e-6):
-        diff = (x - y)
-        diff = torch.abs(diff)
-        diff[diff > threshold] = 1
-        diff[diff <= threshold] = 0
-        return torch.sum(diff)
+        # diff = (x - y)
+        # diff = torch.abs(diff)
+        # diff[diff > threshold] = 1
+        # diff[diff <= threshold] = 0
+        # return torch.sum(diff)
+        loss = torch.dist(x, y, p=0).item()
+        return loss
 
     @staticmethod
     def calculate_linf_loss(x, y):
         diff = (x - y)
         max_loss = torch.max(diff)
         return max_loss
+
+    @staticmethod
+    def calculate_l4_loss(x, y):
+        return torch.dist(x, y, p=4).item()
 
     @staticmethod
     def calculate_l2_loss(x, y):
@@ -386,7 +393,9 @@ class AdaptiveSegmentationMaskAttack:
                 save_suffix += "T_"
             else:
                 save_suffix += "U_"
+                save_suffix += f"{target_class_list}_"
             save_suffix += f"{total_iter}_LR{step_update_multiplier}_{loss_metric}_"
+            save_suffix += "LW{:.2f}_".format(1/classification_vs_norm_ratio)
             if perturbation_mask is not None:
                 save_suffix += f"ptmask_"
             if additional_loss_metric is not None:
@@ -596,13 +605,13 @@ class AdaptiveSegmentationMaskAttack:
                 acc_iou = 0
                 for elem in target_classes:
                     verbose_print(f"calculating untargeted iou for class {elem}")
-                    temp_mask = copy.deepcopy(org_mask).numpy()
+                    temp_mask = copy.deepcopy(org_mask).numpy(force=True).astype(int)
                     temp_mask[temp_mask != elem] = self.temporary_class_id
                     temp_mask[temp_mask == elem] = 1
                     temp_mask[temp_mask == self.temporary_class_id] = 0
 
                     temp_pred_mask = copy.deepcopy(perturbed_im_pred)
-                    temp_pred_mask = temp_pred_mask.astype('uint8')
+                    temp_pred_mask = temp_pred_mask.astype(int)
                     # print(np.unique(temp_pred_mask))
                     temp_pred_mask[temp_pred_mask == elem] = self.temporary_class_id
                     temp_pred_mask[temp_pred_mask != self.temporary_class_id] = 1
