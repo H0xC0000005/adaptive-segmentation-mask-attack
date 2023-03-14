@@ -325,8 +325,10 @@ class AdaptiveSegmentationMaskAttack:
                                                additional_loss_weights=additional_loss_weights,
 
                                                )
-            # update towards difference
-            global_perturbation += (current_pert - global_perturbation) * perturbation_learning_rate
+            # update towards difference, or absolute value?
+            # global_perturbation += (current_pert - global_perturbation) * perturbation_learning_rate
+            global_perturbation += current_pert * perturbation_learning_rate
+
             if counter % report_stat_interval == 0:
                 if save_sample:
                     global_perturb_np: np.ndarray
@@ -375,6 +377,7 @@ class AdaptiveSegmentationMaskAttack:
 
             counter += 1
         if logger_agent is not None:
+            print(f"saving variables to {save_path + save_suffix}.csv")
             logger_agent.save_variables(("Iteration", "Linf", "L2"), save_path + f"{save_suffix}.csv")
 
         return global_perturbation
