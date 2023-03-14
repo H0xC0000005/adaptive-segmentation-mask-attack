@@ -25,12 +25,12 @@ if __name__ == '__main__':
 
     # Glaucoma dataset
     cityscape_dataset = CityscapeDataset(
-        image_path=root+'data/hamburg_set_small/image',
-        mask_path=root+'data/hamburg_set_small/mask'
+        image_path=root+'data/hamburg_set_downsampled/image',
+        mask_path=root+'data/hamburg_set_downsampled/mask'
     )
     cityscape_dataset_eval = CityscapeDataset(
-        image_path=root + 'data/hamburg_set_small_eval/image',
-        mask_path=root + 'data/hamburg_set_small_eval/mask'
+        image_path=root + 'data/hamburg_set_small/image',
+        mask_path=root + 'data/hamburg_set_small/mask'
     )
     # GPU parameters
     DEVICE_ID = 0
@@ -116,41 +116,48 @@ if __name__ == '__main__':
                                                              original_class=original_class,
                                                              target_class=target_class,
                                                              loss_metric="l1",
-                                                             each_step_iter=5,
+                                                             each_step_iter=16,
                                                              save_sample=True,
                                                              verbose=False,
-                                                             save_path='./adv_results/cityscapes_universal_results/',
-                                                             report_stat_interval=100,
+                                                             save_path='./adv_results/cityscapes_TDV_results/',
+                                                             report_stat_interval=5,
                                                              early_stopping_accuracy_threshold=None,
-                                                             perturbation_learning_rate=64e-2)
+                                                             perturbation_learning_rate=320e-3,
+                                                             attack_learning_multiplier=8,
+                                                             eval_dataset=cityscape_dataset_eval,
+                                                             eval_model=model,
+                                                             limit_perturbation_to_target=False,
+
+
+                                                             )
 
     report_image_statistics(pert)
-    counter = 1
-    for eval_tuple in cityscape_dataset_eval:
-        img_eval: torch.Tensor
-        mask_eval: torch.Tensor
-        name, img_eval, mask_eval = eval_tuple[0], eval_tuple[1], eval_tuple[2]
-        if not USE_CPU:
-            img_eval = img_eval.cuda(DEVICE_ID)
-            mask_eval = mask_eval.cuda(DEVICE_ID)
-        img_eval = img_eval.unsqueeze(0)
-        img_eval_pert = img_eval + pert
-        pred_out: torch.Tensor
-        pred_out_pert: torch.Tensor
-        pred_out = model(img_eval)
-        pred_out_pert = model(img_eval_pert)
-        pred_out = pred_out.cpu().detach()
-        pred_out_pert = pred_out_pert.cpu().detach()
-        pred_out = torch.argmax(pred_out, dim=1)
-        pred_out_pert = torch.argmax(pred_out_pert, dim=1)
-        pred_out = CityscapeDataset.decode_target(pred_out)
-        pred_out_pert = CityscapeDataset.decode_target(pred_out_pert)
-
-        save_image(pred_out, f"eval_{counter}", root + f"adv_results/cityscapes_universal_results/eval/")
-        save_image(pred_out_pert, f"eval_{counter}_pert", root + f"adv_results/cityscapes_universal_results/eval/")
-
-
-        counter += 1
+    # counter = 1
+    # for eval_tuple in cityscape_dataset_eval:
+    #     img_eval: torch.Tensor
+    #     mask_eval: torch.Tensor
+    #     name, img_eval, mask_eval = eval_tuple[0], eval_tuple[1], eval_tuple[2]
+    #     if not USE_CPU:
+    #         img_eval = img_eval.cuda(DEVICE_ID)
+    #         mask_eval = mask_eval.cuda(DEVICE_ID)
+    #     img_eval = img_eval.unsqueeze(0)
+    #     img_eval_pert = img_eval + pert
+    #     pred_out: torch.Tensor
+    #     pred_out_pert: torch.Tensor
+    #     pred_out = model(img_eval)
+    #     pred_out_pert = model(img_eval_pert)
+    #     pred_out = pred_out.cpu().detach()
+    #     pred_out_pert = pred_out_pert.cpu().detach()
+    #     pred_out = torch.argmax(pred_out, dim=1)
+    #     pred_out_pert = torch.argmax(pred_out_pert, dim=1)
+    #     pred_out = CityscapeDataset.decode_target(pred_out)
+    #     pred_out_pert = CityscapeDataset.decode_target(pred_out_pert)
+    #
+    #     save_image(pred_out, f"eval_{counter}", root + f"adv_results/cityscapes_universal_results/eval/")
+    #     save_image(pred_out_pert, f"eval_{counter}_pert", root + f"adv_results/cityscapes_universal_results/eval/")
+    #
+    #
+    #     counter += 1
 
     end_time = time.time()
     print(f">>> attack ended. time elapsed: {end_time - start_time}")

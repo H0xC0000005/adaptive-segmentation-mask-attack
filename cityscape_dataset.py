@@ -178,8 +178,8 @@ class CityscapeDataset(Dataset):
             im_as_tensor, msk_as_tensor = self.transform(im_as_im, msk_as_im)
             # print(np.unique(im_as_tensor.numpy()))
         else:
-            im_as_tensor = torch.from_numpy(np.array(im_as_im))
-            msk_as_tensor = torch.from_numpy(np.array(msk_as_im))
+            im_as_tensor = torch.from_numpy(np.array(im_as_im).astype(int))
+            msk_as_tensor = torch.from_numpy(np.array(msk_as_im).astype(int))
         # print(type(msk_as_tensor))
         msk_as_np = self.encode_target(msk_as_tensor)
         msk_as_tensor = torch.from_numpy(msk_as_np)

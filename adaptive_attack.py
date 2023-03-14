@@ -12,11 +12,11 @@ from os.path import isfile
 
 import torch
 from torch.autograd import Variable
+from torch.utils.data import Dataset
 
 from cityscape_dataset import CityscapeDataset
 from self_defined_loss import *
 import re
-
 
 # from torch.autograd import Variable
 # In-repo imports
@@ -40,7 +40,7 @@ def debug_image_as_arr(arr: np.ndarray, name: str = "test",
 
 class AdaptiveSegmentationMaskAttack:
     def __init__(self, device_id: int, model: torch.nn.Module, tau: float, beta: float, *, use_cpu=False):
-        self.temporary_class_id = None
+        self.temporary_class_id = 65535
         self.unique_classes = None  # much like a bit hacking that this is quite dynamic
         self.device_id = device_id
         self.model = model
@@ -66,7 +66,7 @@ class AdaptiveSegmentationMaskAttack:
 
     @staticmethod
     def update_perturbation_multiplier_decrLR(beta, tau, iou):
-        return beta * (1-iou) + tau
+        return beta * (1 - iou) + tau
 
     @staticmethod
     def calculate_loss_facade(x, y, metric: str):
@@ -199,25 +199,77 @@ class AdaptiveSegmentationMaskAttack:
             loss = loss + channel_loss
         return loss
 
+    # def perform_attack(self,
+    #                    input_image: torch.Tensor,
+    #                    org_mask: torch.Tensor,
+    #                    target_mask: torch.Tensor | None,
+    #                    *,
+    #                    target_class_list: typing.Collection,
+    #
+    #                    kwargs_for_metrics: dict[str, typing.Any] = None,
+    #                    perturbation_mask: torch.Tensor = None,
+    #                    initial_perturbation: torch.Tensor = None,
+    #                    loss_metric: str = "l2",
+    #                    additional_loss_metric: typing.Collection[typing.Callable] = None,
+    #                    additional_loss_weights: typing.Collection[float] = None,
+    #                    total_iter=500,
+    #                    classification_vs_norm_ratio: float = 1 / 16,
+    #                    step_update_multiplier: float = 4,
+    #                    save_samples: bool = True,
+    #                    save_path: str | None = None,
+    #                    verbose: bool = False,
+    #                    report_stats: bool = True,
+    #                    report_stat_interval: int = 10,
+    #                    early_stopping_accuracy_threshold: float | None = 1e-4,
+    #                    dynamic_LR_option: str = None,
+    #
+    #                    logger_agent: StatsLogger = None,
+    #                    logging_variables: list | tuple = None,
+    #                    ) -> torch.Tensor:
+
     def perform_targeted_universal_attack(self,
                                           segmentation_dataset: CityscapeDataset,
                                           original_class: int,
                                           target_class: int,
                                           *,
                                           loss_metric: str | list[str] = "l2",
+                                          additional_loss_metric: list = None,
+                                          additional_loss_weights: list = None,
                                           each_step_iter: int = 100,
                                           save_sample: bool = True,
                                           save_path: str = './adv_results/cityscapes_universal_results/',
                                           verbose: bool = True,
                                           classification_vs_norm_ratio: float = 1 / 16,
                                           perturbation_learning_rate: float = 1e-3,
+                                          attack_learning_multiplier: float = 1,
                                           report_stat_interval: int = 10,
                                           early_stopping_accuracy_threshold=1e-3,
-                                          limit_perturbation_to_target: bool = True
+                                          limit_perturbation_to_target: bool = True,
+                                          dynamic_LR_option: str = None,
+                                          logger_agent: StatsLogger = None,
+
+                                          eval_dataset: Dataset = None,
+                                          eval_model: torch.nn.Module = None,
                                           ) -> torch.Tensor:
+        save_suffix = ""
+        if save_path is not None:
+            save_suffix += "T_"
+            save_suffix += f"{original_class}-to-{target_class}_"
+            save_suffix += f"step{each_step_iter}_aLR{attack_learning_multiplier}" \
+                           f"_pLR{perturbation_learning_rate}_{loss_metric}_"
+            save_suffix += "LW{:.2f}_".format(1 / classification_vs_norm_ratio)
+            if limit_perturbation_to_target:
+                save_suffix += f"ptmask_"
+            if additional_loss_metric is not None:
+                save_suffix += f"metc_"
+                if additional_loss_weights is not None:
+                    save_suffix += f"w{additional_loss_weights}_"
+            if dynamic_LR_option is not None:
+                save_suffix += f"{dynamic_LR_option}_"
+            save_path += save_suffix + "/"
+
         # hardcoded logging variables
-
-
+        global_perturbation: torch.Tensor | None
         global_perturbation = None
         counter = 1
         for sample_tuple in segmentation_dataset:
@@ -233,15 +285,15 @@ class AdaptiveSegmentationMaskAttack:
             else:
                 raise ValueError(f"sample tuple returned by your dataset is {len(sample_tuple)} instead of 2 or 3")
 
-            report_image_statistics(mask)
-            report_image_statistics(img)
+            # report_image_statistics(mask)
+            # report_image_statistics(img)
             # Perform attack
             if global_perturbation is None:
                 global_perturbation = torch.zeros(img.shape, device="cpu")
                 if not self.use_cpu:
                     global_perturbation = global_perturbation.cuda(self.device_id)
-
             mask2 = copy.deepcopy(mask)
+            mask2[mask2 == original_class] = target_class
             if limit_perturbation_to_target:
                 pert_mask = copy.deepcopy(mask)
                 pert_mask[pert_mask == original_class] = self.temporary_class_id
@@ -249,10 +301,10 @@ class AdaptiveSegmentationMaskAttack:
                 pert_mask[pert_mask == self.temporary_class_id] = 1
             else:
                 pert_mask = None
-            mask2[mask2 == original_class] = target_class
-            if counter == 1:
-                save_image(mask, "mask_test1", save_path, normalize=False)
-                save_image(mask2, "mask_test2", save_path, normalize=False)
+
+            # if counter == 1:
+            #     save_image(mask, "mask_test1", save_path, normalize=False)
+            #     save_image(mask2, "mask_test2", save_path, normalize=False)
 
             current_pert = self.perform_attack(img,
                                                mask,
@@ -264,12 +316,17 @@ class AdaptiveSegmentationMaskAttack:
                                                total_iter=each_step_iter,
                                                report_stat_interval=report_stat_interval,
                                                verbose=verbose,
-                                               report_stats=True,
+                                               report_stats=verbose,
                                                early_stopping_accuracy_threshold=early_stopping_accuracy_threshold,
                                                classification_vs_norm_ratio=classification_vs_norm_ratio,
-                                               perturbation_mask=pert_mask
+                                               perturbation_mask=pert_mask,
+                                               step_update_multiplier=attack_learning_multiplier,
+                                               additional_loss_metric=additional_loss_metric,
+                                               additional_loss_weights=additional_loss_weights,
+
                                                )
-            global_perturbation += current_pert * perturbation_learning_rate
+            # update towards difference
+            global_perturbation += (current_pert - global_perturbation) * perturbation_learning_rate
             if counter % report_stat_interval == 0:
                 if save_sample:
                     global_perturb_np: np.ndarray
@@ -279,10 +336,47 @@ class AdaptiveSegmentationMaskAttack:
                     mask_dec = CityscapeDataset.decode_target(mask)
                     mask2_dec = CityscapeDataset.decode_target(mask2)
                     save_image(mask_dec, f"mask_{counter}", save_path + "masks", normalize=False)
-                    save_image(mask2_dec, f"mask_{counter}_2", save_path + "masks", normalize=False)
+                    save_image(mask2_dec, f"mask_{counter}", save_path + "masks2", normalize=False)
                 linf = torch.max(global_perturbation)
-                print(f"Iter: {counter}\t Linf: {linf}")
+                l2 = torch.sum(global_perturbation * global_perturbation)
+                # print(f"Iter: {counter}\t Linf: {linf}\t L2: {l2}")
+                if logger_agent is not None:
+                    logger_agent.log_variable("Iteration", counter)
+                    logger_agent.log_variable("Linf", linf)
+                    logger_agent.log_variable("L2", l2)
             counter += 1
+        save_image(global_perturbation, "global_pert", save_path, normalize=True)
+        if eval_dataset is None:
+            return global_perturbation
+
+        counter = 1
+        for eval_tuple in eval_dataset:
+            img_eval: torch.Tensor
+            mask_eval: torch.Tensor
+            name, img_eval, mask_eval = eval_tuple[0], eval_tuple[1], eval_tuple[2]
+            if not self.use_cpu:
+                img_eval = img_eval.cuda(self.device_id)
+                mask_eval = mask_eval.cuda(self.device_id)
+            img_eval = img_eval.unsqueeze(0)
+            img_eval_pert = img_eval + global_perturbation
+            pred_out: torch.Tensor
+            pred_out_pert: torch.Tensor
+            pred_out = eval_model(img_eval)
+            pred_out_pert = eval_model(img_eval_pert)
+            pred_out = pred_out.cpu().detach()
+            pred_out_pert = pred_out_pert.cpu().detach()
+            pred_out = torch.argmax(pred_out, dim=1)
+            pred_out_pert = torch.argmax(pred_out_pert, dim=1)
+            pred_out = CityscapeDataset.decode_target(pred_out)
+            pred_out_pert = CityscapeDataset.decode_target(pred_out_pert)
+
+            save_image(pred_out, f"eval_{counter}", save_path + "eval")
+            save_image(pred_out_pert, f"eval_{counter}_pert", save_path + "eval")
+
+            counter += 1
+        if logger_agent is not None:
+            logger_agent.save_variables(("Iteration", "Linf", "L2"), save_path + f"{save_suffix}.csv")
+
         return global_perturbation
 
     def perform_L1plus_second_attack(self,
@@ -395,7 +489,7 @@ class AdaptiveSegmentationMaskAttack:
                 save_suffix += "U_"
                 save_suffix += f"{target_class_list}_"
             save_suffix += f"{total_iter}_LR{step_update_multiplier}_{loss_metric}_"
-            save_suffix += "LW{:.2f}_".format(1/classification_vs_norm_ratio)
+            save_suffix += "LW{:.2f}_".format(1 / classification_vs_norm_ratio)
             if perturbation_mask is not None:
                 save_suffix += f"ptmask_"
             if additional_loss_metric is not None:
@@ -494,7 +588,7 @@ class AdaptiveSegmentationMaskAttack:
         # image_to_optimize = image_to_optimize + (noise_variance ** 0.5) * torch.randn(image_to_optimize.shape)
         if initial_perturbation is not None:
             image_to_optimize = image_to_optimize + initial_perturbation
-        print("VVVV max of im to optimize: ", torch.max(image_to_optimize), "shape: ", image_to_optimize.shape)
+        # print("VVVV max of im to optimize: ", torch.max(image_to_optimize), "shape: ", image_to_optimize.shape)
         # Copied version of image for l2 dist
         org_im_copy = copy.deepcopy(input_image.cpu())
         if not self.use_cpu:
