@@ -227,6 +227,162 @@ class AdaptiveSegmentationMaskAttack:
     #                    logging_variables: list | tuple = None,
     #                    ) -> torch.Tensor:
 
+    def perform_static_universal_attack(self,
+                                          segmentation_dataset: CityscapeDataset,
+                                          original_class: int,
+                                          target_class: int,
+                                          *,
+                                          loss_metric: str | list[str] = "l2",
+                                          additional_loss_metric: list = None,
+                                          additional_loss_weights: list = None,
+                                          each_step_iter: int = 100,
+                                          save_sample: bool = True,
+                                          save_path: str = './adv_results/cityscapes_universal_results/',
+                                          verbose: bool = True,
+                                          classification_vs_norm_ratio: float = 1 / 16,
+                                          perturbation_learning_rate: float = 1e-3,
+                                          attack_learning_multiplier: float = 1,
+                                          report_stat_interval: int = 10,
+                                          early_stopping_accuracy_threshold=1e-3,
+                                          limit_perturbation_to_target: bool = True,
+                                          dynamic_LR_option: str = None,
+                                          logger_agent: StatsLogger = None,
+
+                                          eval_dataset: Dataset = None,
+                                          eval_model: torch.nn.Module = None,
+                                          ) -> torch.Tensor:
+        save_suffix = ""
+        if save_path is not None:
+            save_suffix += "T_"
+            save_suffix += f"{original_class}-to-{target_class}_"
+            save_suffix += f"step{each_step_iter}_aLR{attack_learning_multiplier}" \
+                           f"_pLR{perturbation_learning_rate}_{loss_metric}_"
+            save_suffix += "LW{:.2f}_".format(1 / classification_vs_norm_ratio)
+            if limit_perturbation_to_target:
+                save_suffix += f"ptmask_"
+            if additional_loss_metric is not None:
+                save_suffix += f"metc_"
+                if additional_loss_weights is not None:
+                    save_suffix += f"w{additional_loss_weights}_"
+            if dynamic_LR_option is not None:
+                save_suffix += f"{dynamic_LR_option}_"
+            save_path += save_suffix + "/"
+
+        # hardcoded logging variables
+        global_perturbation: torch.Tensor | None
+        global_perturbation = None
+        counter = 1
+        for sample_tuple in segmentation_dataset:
+            if len(sample_tuple) == 2:
+                # image, mask
+                img = sample_tuple[0]
+                mask = sample_tuple[1]
+            elif len(sample_tuple) == 3:
+                # name, image, mask
+                name = sample_tuple[0]
+                img = sample_tuple[1]
+                mask = sample_tuple[2]
+            else:
+                raise ValueError(f"sample tuple returned by your dataset is {len(sample_tuple)} instead of 2 or 3")
+
+            # report_image_statistics(mask)
+            # report_image_statistics(img)
+            # Perform attack
+            if global_perturbation is None:
+                global_perturbation = torch.zeros(img.shape, device="cpu")
+                if not self.use_cpu:
+                    global_perturbation = global_perturbation.cuda(self.device_id)
+            mask2 = copy.deepcopy(mask)
+            mask2[mask2 == original_class] = target_class
+            if limit_perturbation_to_target:
+                pert_mask = copy.deepcopy(mask)
+                pert_mask[pert_mask == original_class] = self.temporary_class_id
+                pert_mask[pert_mask != self.temporary_class_id] = 0
+                pert_mask[pert_mask == self.temporary_class_id] = 1
+            else:
+                pert_mask = None
+
+            # if counter == 1:
+            #     save_image(mask, "mask_test1", save_path, normalize=False)
+            #     save_image(mask2, "mask_test2", save_path, normalize=False)
+
+            current_pert = self.perform_attack(img,
+                                               mask,
+                                               mask2,
+                                               loss_metric=loss_metric,
+                                               initial_perturbation=global_perturbation,
+                                               save_samples=False,
+                                               target_class_list=[target_class],
+                                               total_iter=each_step_iter,
+                                               report_stat_interval=report_stat_interval,
+                                               verbose=verbose,
+                                               report_stats=verbose,
+                                               early_stopping_accuracy_threshold=early_stopping_accuracy_threshold,
+                                               classification_vs_norm_ratio=classification_vs_norm_ratio,
+                                               perturbation_mask=pert_mask,
+                                               step_update_multiplier=attack_learning_multiplier,
+                                               additional_loss_metric=additional_loss_metric,
+                                               additional_loss_weights=additional_loss_weights,
+
+                                               )
+            # update towards difference, or absolute value?
+            # global_perturbation += (current_pert - global_perturbation) * perturbation_learning_rate
+            global_perturbation += current_pert * perturbation_learning_rate
+
+            if counter % report_stat_interval == 0:
+                if save_sample:
+                    global_perturb_np: np.ndarray
+                    global_perturb_np = global_perturbation.cpu().detach().numpy()[0]
+                    save_image(global_perturb_np, 'iter_' + str(counter),
+                               save_path + 'global_ptb', normalize=True)
+                    mask_dec = CityscapeDataset.decode_target(mask)
+                    mask2_dec = CityscapeDataset.decode_target(mask2)
+                    save_image(mask_dec, f"mask_{counter}", save_path + "masks", normalize=False)
+                    save_image(mask2_dec, f"mask_{counter}", save_path + "masks2", normalize=False)
+                linf = torch.max(global_perturbation)
+                l2 = torch.sum(global_perturbation * global_perturbation)
+                # print(f"Iter: {counter}\t Linf: {linf}\t L2: {l2}")
+                if logger_agent is not None:
+                    logger_agent.log_variable("Iteration", counter)
+                    logger_agent.log_variable("Linf", linf)
+                    logger_agent.log_variable("L2", l2)
+            counter += 1
+        save_image(global_perturbation, "global_pert", save_path, normalize=True)
+        if eval_dataset is None:
+            return global_perturbation
+
+        counter = 1
+        for eval_tuple in eval_dataset:
+            img_eval: torch.Tensor
+            mask_eval: torch.Tensor
+            name, img_eval, mask_eval = eval_tuple[0], eval_tuple[1], eval_tuple[2]
+            if not self.use_cpu:
+                img_eval = img_eval.cuda(self.device_id)
+                mask_eval = mask_eval.cuda(self.device_id)
+            img_eval = img_eval.unsqueeze(0)
+            img_eval_pert = img_eval + global_perturbation
+            pred_out: torch.Tensor
+            pred_out_pert: torch.Tensor
+            pred_out = eval_model(img_eval)
+            pred_out_pert = eval_model(img_eval_pert)
+            pred_out = pred_out.cpu().detach()
+            pred_out_pert = pred_out_pert.cpu().detach()
+            pred_out = torch.argmax(pred_out, dim=1)
+            pred_out_pert = torch.argmax(pred_out_pert, dim=1)
+            pred_out = CityscapeDataset.decode_target(pred_out)
+            pred_out_pert = CityscapeDataset.decode_target(pred_out_pert)
+
+            save_image(pred_out, f"eval_{counter}", save_path + "eval")
+            save_image(pred_out_pert, f"eval_{counter}_pert", save_path + "eval")
+
+            counter += 1
+        if logger_agent is not None:
+            print(f"saving variables to {save_path + save_suffix}.csv")
+            logger_agent.save_variables(("Iteration", "Linf", "L2"), save_path + f"{save_suffix}.csv")
+
+        return global_perturbation
+
+
     def perform_targeted_universal_attack(self,
                                           segmentation_dataset: CityscapeDataset,
                                           original_class: int,
