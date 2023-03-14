@@ -90,8 +90,8 @@ if __name__ == '__main__':
     # beta = 1e-6
     tau = 2e-6
     beta = 2e-5
-    original_class = 13
-    target_class = 8
+    original_class = 8
+    target_class = 2
 
     # Perform attack
     adaptive_attack = AdaptiveSegmentationMaskAttack(DEVICE_ID, model, tau, beta, use_cpu=USE_CPU)
