@@ -228,38 +228,33 @@ class AdaptiveSegmentationMaskAttack:
     #                    ) -> torch.Tensor:
 
     def perform_static_universal_attack(self,
-                                          segmentation_dataset: CityscapeDataset,
-                                          original_class: int,
-                                          target_class: int,
-                                          *,
-                                          loss_metric: str | list[str] = "l2",
-                                          additional_loss_metric: list = None,
-                                          additional_loss_weights: list = None,
-                                          each_step_iter: int = 100,
-                                          save_sample: bool = True,
-                                          save_path: str = './adv_results/cityscapes_universal_results/',
-                                          verbose: bool = True,
-                                          classification_vs_norm_ratio: float = 1 / 16,
-                                          perturbation_learning_rate: float = 1e-3,
-                                          attack_learning_multiplier: float = 1,
-                                          report_stat_interval: int = 10,
-                                          early_stopping_accuracy_threshold=1e-3,
-                                          limit_perturbation_to_target: bool = True,
-                                          dynamic_LR_option: str = None,
-                                          logger_agent: StatsLogger = None,
+                                        segmentation_dataset: CityscapeDataset,
+                                        target_mask: torch.Tensor,
+                                        *,
+                                        loss_metric: str | list[str] = "l2",
+                                        additional_loss_metric: list = None,
+                                        additional_loss_weights: list = None,
+                                        each_step_iter: int = 100,
+                                        save_sample: bool = True,
+                                        save_path: str = './adv_results/cityscapes_universal_results/',
+                                        verbose: bool = True,
+                                        classification_vs_norm_ratio: float = 1 / 16,
+                                        perturbation_learning_rate: float = 1e-3,
+                                        attack_learning_multiplier: float = 1,
+                                        report_stat_interval: int = 10,
+                                        early_stopping_accuracy_threshold=1e-3,
+                                        dynamic_LR_option: str = None,
+                                        logger_agent: StatsLogger = None,
 
-                                          eval_dataset: Dataset = None,
-                                          eval_model: torch.nn.Module = None,
-                                          ) -> torch.Tensor:
+                                        eval_dataset: Dataset = None,
+                                        eval_model: torch.nn.Module = None,
+                                        ) -> torch.Tensor:
         save_suffix = ""
         if save_path is not None:
-            save_suffix += "T_"
-            save_suffix += f"{original_class}-to-{target_class}_"
+            save_suffix += "TS_"
             save_suffix += f"step{each_step_iter}_aLR{attack_learning_multiplier}" \
                            f"_pLR{perturbation_learning_rate}_{loss_metric}_"
             save_suffix += "LW{:.2f}_".format(1 / classification_vs_norm_ratio)
-            if limit_perturbation_to_target:
-                save_suffix += f"ptmask_"
             if additional_loss_metric is not None:
                 save_suffix += f"metc_"
                 if additional_loss_weights is not None:
@@ -267,6 +262,15 @@ class AdaptiveSegmentationMaskAttack:
             if dynamic_LR_option is not None:
                 save_suffix += f"{dynamic_LR_option}_"
             save_path += save_suffix + "/"
+
+        mask2: torch.Tensor
+        mask2 = target_mask
+        m2set = set(np.unique(mask2.numpy(force=True)))
+        print(f">>> untarget atk against {m2set}.")
+        try:
+            m2set.remove(255)
+        except KeyError:
+            pass
 
         # hardcoded logging variables
         global_perturbation: torch.Tensor | None
@@ -292,16 +296,6 @@ class AdaptiveSegmentationMaskAttack:
                 global_perturbation = torch.zeros(img.shape, device="cpu")
                 if not self.use_cpu:
                     global_perturbation = global_perturbation.cuda(self.device_id)
-            mask2 = copy.deepcopy(mask)
-            mask2[mask2 == original_class] = target_class
-            if limit_perturbation_to_target:
-                pert_mask = copy.deepcopy(mask)
-                pert_mask[pert_mask == original_class] = self.temporary_class_id
-                pert_mask[pert_mask != self.temporary_class_id] = 0
-                pert_mask[pert_mask == self.temporary_class_id] = 1
-            else:
-                pert_mask = None
-
             # if counter == 1:
             #     save_image(mask, "mask_test1", save_path, normalize=False)
             #     save_image(mask2, "mask_test2", save_path, normalize=False)
@@ -312,14 +306,14 @@ class AdaptiveSegmentationMaskAttack:
                                                loss_metric=loss_metric,
                                                initial_perturbation=global_perturbation,
                                                save_samples=False,
-                                               target_class_list=[target_class],
+                                               target_class_list=m2set,
                                                total_iter=each_step_iter,
                                                report_stat_interval=report_stat_interval,
                                                verbose=verbose,
                                                report_stats=verbose,
                                                early_stopping_accuracy_threshold=early_stopping_accuracy_threshold,
                                                classification_vs_norm_ratio=classification_vs_norm_ratio,
-                                               perturbation_mask=pert_mask,
+                                               perturbation_mask=None,
                                                step_update_multiplier=attack_learning_multiplier,
                                                additional_loss_metric=additional_loss_metric,
                                                additional_loss_weights=additional_loss_weights,
@@ -381,7 +375,6 @@ class AdaptiveSegmentationMaskAttack:
             logger_agent.save_variables(("Iteration", "Linf", "L2"), save_path + f"{save_suffix}.csv")
 
         return global_perturbation
-
 
     def perform_targeted_universal_attack(self,
                                           segmentation_dataset: CityscapeDataset,
@@ -941,6 +934,6 @@ class AdaptiveSegmentationMaskAttack:
                                                  org_im_copy.data,
                                                  None,
                                                  normalize=False,
-                                                 save_flag=False
+                                                 save_flag=False,
                                                  )
         return final_diff

@@ -17,7 +17,8 @@ import ext_transforms as et
 class CityscapeDataset(Dataset):
     CityscapesClass = namedtuple('CityscapesClass', ['name', 'id', 'train_id', 'category', 'category_id',
                                                      'has_instances', 'ignore_in_eval', 'color'])
-    # name id trainid category categoryid has_instances ignore_in_eval colour
+    #                                    name id trainid   categoryid  ignore_in_eval
+    #                                                 category     has_instances  colour
     classes = [
         CityscapesClass('unlabeled',            0, 255, 'void', 0, False, True, (0, 0, 0)),
         CityscapesClass('ego vehicle',          1, 255, 'void', 0, False, True, (0, 0, 0)),
