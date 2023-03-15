@@ -266,11 +266,18 @@ class AdaptiveSegmentationMaskAttack:
         mask2: torch.Tensor
         mask2 = target_mask
         m2set = set(np.unique(mask2.numpy(force=True)))
-        print(f">>> untarget atk against {m2set}.")
         try:
             m2set.remove(255)
         except KeyError:
             pass
+        print(f">>> untarget atk against {m2set}.")
+
+        if save_sample:
+            m2s: torch.Tensor
+            m2s = copy.deepcopy(mask2)
+            m2s = m2s.cpu().detach()
+            m2s = CityscapeDataset.decode_target(m2s)
+            save_image(m2s, "target_mask", save_path, normalize=False)
 
         # hardcoded logging variables
         global_perturbation: torch.Tensor | None
