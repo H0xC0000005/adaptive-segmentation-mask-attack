@@ -415,17 +415,28 @@ closures for various purposes
 """
 
 
-class SelectRectL1IntenseRegion:
+class SelectL1Method:
+    def __init__(self):
+        self.device = None
+
+    def check_first_arg(self, mask) -> None:
+        assert isinstance(mask, torch.Tensor), f"in {self.__class__}, only accept torch.Tensor. got" \
+                                               f" {type(mask)}"
+        assert len(mask.shape) in (2, 3), f"in {self.__class__}, get mask with shape {mask.shape}. only accept " \
+                                          f"unbached greyscale or color"
+
+    def __call__(self, *args, **kwargs):
+        print(f"base class l1 sel call")
+
+
+class SelectRectL1IntenseRegion(SelectL1Method):
     """
     a closure to select rectangular most intense region for L1 perturbation
     """
 
-    def __init__(self, height: int,
-                 width: int,
-                 number_of_rec: int,
-                 in_channels: int = 3,
-                 allow_overlap: bool = True,
+    def __init__(self, height: int, width: int, number_of_rec: int, in_channels: int = 3, allow_overlap: bool = True,
                  overlap_threshold: float = None):
+        super().__init__()
         if not allow_overlap and overlap_threshold is None:
             overlap_threshold = (width + height) / (2 * 20)
         self.overlap_threshold = overlap_threshold
@@ -438,7 +449,6 @@ class SelectRectL1IntenseRegion:
                                     bias=False)
         self.conv.weight.data = torch.ones(size=(1, in_channels, width, height))
         self.number_of_rec = number_of_rec
-        self.device = None
 
     def __call__(self, *args, **kwargs) -> torch.Tensor:
         """
@@ -453,13 +463,13 @@ class SelectRectL1IntenseRegion:
         mask: torch.Tensor
         mask = args[0]
 
-        assert isinstance(mask, torch.Tensor), f"in select l1 rect region, only accept torch.Tensor. got" \
-                                               f" {type(mask)}"
-        assert len(mask.shape) in (2, 3), f"in select l1 rect region, get mask with shape {mask.shape}. only accept " \
-                                          f"unbached greyscale or color"
+        self.check_first_arg(mask)
         # 2d to 3d
         if len(mask.shape) == 2:
             mask = mask.unsqueeze(0)
+        # sum whatever channel we have and unsqueeze
+        mask = torch.sum(mask, dim=0)
+        mask = mask.unsqueeze(0)
         # change device for this closure
         self.device = mask.device
         self.conv.to(device=self.device)
@@ -483,11 +493,9 @@ class SelectRectL1IntenseRegion:
                                            k=self.number_of_rec).indices
             # print(conv_topk_indices)
             # print(f"conv size: {conv_size}")
-            selected_rec_pos = set()
             for flt_idx in conv_topk_indices:
                 # return linear idx to original idx
                 cur_idx = absolute_index_to_tuple_index(flt_idx, conv_size)
-                selected_rec_pos.add(cur_idx)
                 # mark result mask with corresponding rectangle
                 result_mask[cur_idx[-2]: cur_idx[-2] + self.height, cur_idx[-1]: cur_idx[-1] + self.width] += 1
             # clamp all 0+ entries to 1
@@ -510,3 +518,58 @@ class SelectRectL1IntenseRegion:
                 result_mask[cur_idx[-2]: cur_idx[-2] + self.height, cur_idx[-1]: cur_idx[-1] + self.width] += 1
             result_mask[result_mask != 0] = 1
             return result_mask
+
+
+class SelectTopKPoints(SelectL1Method):
+    def __init__(self, k: int, dot_radius: int = 0, threshold: float = None):
+        super().__init__()
+        self.k = k
+        self.threshold = threshold
+        self.dot_radius = dot_radius
+
+    def __call__(self, *args, **kwargs):
+        mask: torch.Tensor
+        mask = args[0]
+        self.check_first_arg(mask)
+        self.device = mask.device
+        # 2d to 3d padding
+        if len(mask.shape) == 2:
+            mask = mask.unsqueeze(0)
+        # sum whatever channel we have and unsqueeze
+        mask = torch.sum(mask, dim=0)
+        mask = mask.unsqueeze(0)
+        mask_flattened = torch.flatten(mask)
+        mask_size = mask_flattened.shape
+        result_mask = torch.zeros(size=mask.shape[-2:], device=self.device)
+        topk_indices = torch.topk(mask_flattened,
+                                  k=self.k).indices
+        for flt_idx in topk_indices:
+            # return linear idx to original idx
+            cur_idx = absolute_index_to_tuple_index(flt_idx, mask_size)
+            # mark result mask with corresponding rectangle
+            dr = self.dot_radius
+            result_mask[cur_idx[-2]-dr: cur_idx[-2]+dr+1, cur_idx[-1]-dr: cur_idx[-1]+dr+1] += 1
+        # clamp all 0+ entries to 1
+        result_mask[result_mask != 0] = 1
+        return result_mask
+
+
+class L1SelectionPostprocessing:
+    def __call__(self, *args, **kwargs):
+        print(f"base class l1 postpro call")
+
+
+class MaskingToOriginalClass(L1SelectionPostprocessing):
+    def __init__(self):
+        pass
+
+    def __call__(self, *args, **kwargs) -> torch.Tensor:
+        org_mask = args[0]
+        l1_mask = args[1]
+        assert isinstance(org_mask, torch.Tensor), f"in masking to original class, received org mask as type " \
+                                                   f"{type(org_mask)} instead of torch tensor"
+        assert isinstance(l1_mask, torch.Tensor), f"in masking to original class, received l1 mask as type " \
+                                                  f"{type(l1_mask)} instead of torch tensor"
+        org_mask[org_mask != 0] = 1
+        l1_mask[l1_mask != 0] = 1
+        return org_mask * l1_mask

@@ -231,6 +231,8 @@ class AdaptiveSegmentationMaskAttack:
                                         segmentation_dataset: CityscapeDataset,
                                         target_mask: torch.Tensor,
                                         *,
+                                        dataset_loop_count: int = 2,
+                                        batch_size: int = 4,
                                         loss_metric: str | list[str] = "l2",
                                         additional_loss_metric: list = None,
                                         additional_loss_weights: list = None,
@@ -283,71 +285,80 @@ class AdaptiveSegmentationMaskAttack:
         global_perturbation: torch.Tensor | None
         global_perturbation = None
         counter = 1
-        for sample_tuple in segmentation_dataset:
-            if len(sample_tuple) == 2:
-                # image, mask
-                img = sample_tuple[0]
-                mask = sample_tuple[1]
-            elif len(sample_tuple) == 3:
-                # name, image, mask
-                name = sample_tuple[0]
-                img = sample_tuple[1]
-                mask = sample_tuple[2]
-            else:
-                raise ValueError(f"sample tuple returned by your dataset is {len(sample_tuple)} instead of 2 or 3")
+        batch_pert = None
+        for cnt in range(dataset_loop_count):
+            for sample_tuple in segmentation_dataset:
+                if len(sample_tuple) == 2:
+                    # image, mask
+                    img = sample_tuple[0]
+                    mask = sample_tuple[1]
+                elif len(sample_tuple) == 3:
+                    # name, image, mask
+                    name = sample_tuple[0]
+                    img = sample_tuple[1]
+                    mask = sample_tuple[2]
+                else:
+                    raise ValueError(f"sample tuple returned by your dataset is {len(sample_tuple)} instead of 2 or 3")
 
-            # report_image_statistics(mask)
-            # report_image_statistics(img)
-            # Perform attack
-            if global_perturbation is None:
-                global_perturbation = torch.zeros(img.shape, device="cpu")
-                if not self.use_cpu:
-                    global_perturbation = global_perturbation.cuda(self.device_id)
-            # if counter == 1:
-            #     save_image(mask, "mask_test1", save_path, normalize=False)
-            #     save_image(mask2, "mask_test2", save_path, normalize=False)
+                # report_image_statistics(mask)
+                # report_image_statistics(img)
+                # Perform attack
+                if global_perturbation is None:
+                    global_perturbation = torch.zeros(img.shape, device="cpu")
+                    if not self.use_cpu:
+                        global_perturbation = global_perturbation.cuda(self.device_id)
+                # if counter == 1:
+                #     save_image(mask, "mask_test1", save_path, normalize=False)
+                #     save_image(mask2, "mask_test2", save_path, normalize=False)
 
-            current_pert = self.perform_attack(img,
-                                               mask,
-                                               mask2,
-                                               loss_metric=loss_metric,
-                                               initial_perturbation=global_perturbation,
-                                               save_samples=False,
-                                               target_class_list=m2set,
-                                               total_iter=each_step_iter,
-                                               report_stat_interval=report_stat_interval,
-                                               verbose=verbose,
-                                               report_stats=verbose,
-                                               early_stopping_accuracy_threshold=early_stopping_accuracy_threshold,
-                                               classification_vs_norm_ratio=classification_vs_norm_ratio,
-                                               perturbation_mask=None,
-                                               step_update_multiplier=attack_learning_multiplier,
-                                               additional_loss_metric=additional_loss_metric,
-                                               additional_loss_weights=additional_loss_weights,
+                current_pert = self.perform_attack(img,
+                                                   mask,
+                                                   mask2,
+                                                   loss_metric=loss_metric,
+                                                   initial_perturbation=global_perturbation,
+                                                   save_samples=False,
+                                                   target_class_list=m2set,
+                                                   total_iter=each_step_iter,
+                                                   report_stat_interval=report_stat_interval,
+                                                   verbose=verbose,
+                                                   report_stats=verbose,
+                                                   early_stopping_accuracy_threshold=early_stopping_accuracy_threshold,
+                                                   classification_vs_norm_ratio=classification_vs_norm_ratio,
+                                                   perturbation_mask=None,
+                                                   step_update_multiplier=attack_learning_multiplier,
+                                                   additional_loss_metric=additional_loss_metric,
+                                                   additional_loss_weights=additional_loss_weights,
 
-                                               )
-            # update towards difference, or absolute value?
-            # global_perturbation += (current_pert - global_perturbation) * perturbation_learning_rate
-            global_perturbation += current_pert * perturbation_learning_rate
+                                                   )
+                # update towards difference, or absolute value?
+                # global_perturbation += (current_pert - global_perturbation) * perturbation_learning_rate
+                if counter % batch_size == 0:
+                    global_perturbation += current_pert * perturbation_learning_rate / batch_size
+                    batch_pert = None
+                else:
+                    if batch_pert is None:
+                        batch_pert = copy.deepcopy(current_pert)
+                    else:
+                        batch_pert += current_pert
 
-            if counter % report_stat_interval == 0:
-                if save_sample:
-                    global_perturb_np: np.ndarray
-                    global_perturb_np = global_perturbation.cpu().detach().numpy()[0]
-                    save_image(global_perturb_np, 'iter_' + str(counter),
-                               save_path + 'global_ptb', normalize=True)
-                    mask_dec = CityscapeDataset.decode_target(mask)
-                    mask2_dec = CityscapeDataset.decode_target(mask2)
-                    save_image(mask_dec, f"mask_{counter}", save_path + "masks", normalize=False)
-                    save_image(mask2_dec, f"mask_{counter}", save_path + "masks2", normalize=False)
-                linf = torch.max(global_perturbation)
-                l2 = torch.sum(global_perturbation * global_perturbation)
-                # print(f"Iter: {counter}\t Linf: {linf}\t L2: {l2}")
-                if logger_agent is not None:
-                    logger_agent.log_variable("Iteration", counter)
-                    logger_agent.log_variable("Linf", linf)
-                    logger_agent.log_variable("L2", l2)
-            counter += 1
+                if counter % report_stat_interval == 0:
+                    if save_sample:
+                        global_perturb_np: np.ndarray
+                        global_perturb_np = global_perturbation.cpu().detach().numpy()[0]
+                        save_image(global_perturb_np, 'iter_' + str(counter),
+                                   save_path + 'global_ptb', normalize=True)
+                        mask_dec = CityscapeDataset.decode_target(mask)
+                        mask2_dec = CityscapeDataset.decode_target(mask2)
+                        save_image(mask_dec, f"mask_{counter}", save_path + "masks", normalize=False)
+                        save_image(mask2_dec, f"mask_{counter}", save_path + "masks2", normalize=False)
+                    linf = torch.max(global_perturbation)
+                    l2 = torch.sum(global_perturbation * global_perturbation)
+                    # print(f"Iter: {counter}\t Linf: {linf}\t L2: {l2}")
+                    if logger_agent is not None:
+                        logger_agent.log_variable("Iteration", counter)
+                        logger_agent.log_variable("Linf", linf)
+                        logger_agent.log_variable("L2", l2)
+                counter += 1
         save_image(global_perturbation, "global_pert", save_path, normalize=True)
         if eval_dataset is None:
             return global_perturbation
@@ -388,6 +399,8 @@ class AdaptiveSegmentationMaskAttack:
                                           original_class: int,
                                           target_class: int,
                                           *,
+                                          dataset_loop_count: int = 2,
+                                          batch_size: int = 4,
                                           loss_metric: str | list[str] = "l2",
                                           additional_loss_metric: list = None,
                                           additional_loss_weights: list = None,
@@ -428,81 +441,90 @@ class AdaptiveSegmentationMaskAttack:
         global_perturbation: torch.Tensor | None
         global_perturbation = None
         counter = 1
-        for sample_tuple in segmentation_dataset:
-            if len(sample_tuple) == 2:
-                # image, mask
-                img = sample_tuple[0]
-                mask = sample_tuple[1]
-            elif len(sample_tuple) == 3:
-                # name, image, mask
-                name = sample_tuple[0]
-                img = sample_tuple[1]
-                mask = sample_tuple[2]
-            else:
-                raise ValueError(f"sample tuple returned by your dataset is {len(sample_tuple)} instead of 2 or 3")
+        batch_pert = None
+        for cnt in range(dataset_loop_count):
+            for sample_tuple in segmentation_dataset:
+                if len(sample_tuple) == 2:
+                    # image, mask
+                    img = sample_tuple[0]
+                    mask = sample_tuple[1]
+                elif len(sample_tuple) == 3:
+                    # name, image, mask
+                    name = sample_tuple[0]
+                    img = sample_tuple[1]
+                    mask = sample_tuple[2]
+                else:
+                    raise ValueError(f"sample tuple returned by your dataset is {len(sample_tuple)} instead of 2 or 3")
 
-            # report_image_statistics(mask)
-            # report_image_statistics(img)
-            # Perform attack
-            if global_perturbation is None:
-                global_perturbation = torch.zeros(img.shape, device="cpu")
-                if not self.use_cpu:
-                    global_perturbation = global_perturbation.cuda(self.device_id)
-            mask2 = copy.deepcopy(mask)
-            mask2[mask2 == original_class] = target_class
-            if limit_perturbation_to_target:
-                pert_mask = copy.deepcopy(mask)
-                pert_mask[pert_mask == original_class] = self.temporary_class_id
-                pert_mask[pert_mask != self.temporary_class_id] = 0
-                pert_mask[pert_mask == self.temporary_class_id] = 1
-            else:
-                pert_mask = None
+                # report_image_statistics(mask)
+                # report_image_statistics(img)
+                # Perform attack
+                if global_perturbation is None:
+                    global_perturbation = torch.zeros(img.shape, device="cpu")
+                    if not self.use_cpu:
+                        global_perturbation = global_perturbation.cuda(self.device_id)
+                mask2 = copy.deepcopy(mask)
+                mask2[mask2 == original_class] = target_class
+                if limit_perturbation_to_target:
+                    pert_mask = copy.deepcopy(mask)
+                    pert_mask[pert_mask == original_class] = self.temporary_class_id
+                    pert_mask[pert_mask != self.temporary_class_id] = 0
+                    pert_mask[pert_mask == self.temporary_class_id] = 1
+                else:
+                    pert_mask = None
 
-            # if counter == 1:
-            #     save_image(mask, "mask_test1", save_path, normalize=False)
-            #     save_image(mask2, "mask_test2", save_path, normalize=False)
+                # if counter == 1:
+                #     save_image(mask, "mask_test1", save_path, normalize=False)
+                #     save_image(mask2, "mask_test2", save_path, normalize=False)
 
-            current_pert = self.perform_attack(img,
-                                               mask,
-                                               mask2,
-                                               loss_metric=loss_metric,
-                                               initial_perturbation=global_perturbation,
-                                               save_samples=False,
-                                               target_class_list=[target_class],
-                                               total_iter=each_step_iter,
-                                               report_stat_interval=report_stat_interval,
-                                               verbose=verbose,
-                                               report_stats=verbose,
-                                               early_stopping_accuracy_threshold=early_stopping_accuracy_threshold,
-                                               classification_vs_norm_ratio=classification_vs_norm_ratio,
-                                               perturbation_mask=pert_mask,
-                                               step_update_multiplier=attack_learning_multiplier,
-                                               additional_loss_metric=additional_loss_metric,
-                                               additional_loss_weights=additional_loss_weights,
+                current_pert = self.perform_attack(img,
+                                                   mask,
+                                                   mask2,
+                                                   loss_metric=loss_metric,
+                                                   initial_perturbation=global_perturbation,
+                                                   save_samples=False,
+                                                   target_class_list=[target_class],
+                                                   total_iter=each_step_iter,
+                                                   report_stat_interval=report_stat_interval,
+                                                   verbose=verbose,
+                                                   report_stats=verbose,
+                                                   early_stopping_accuracy_threshold=early_stopping_accuracy_threshold,
+                                                   classification_vs_norm_ratio=classification_vs_norm_ratio,
+                                                   perturbation_mask=pert_mask,
+                                                   step_update_multiplier=attack_learning_multiplier,
+                                                   additional_loss_metric=additional_loss_metric,
+                                                   additional_loss_weights=additional_loss_weights,
 
-                                               )
-            # update towards difference, or absolute value?
-            # global_perturbation += (current_pert - global_perturbation) * perturbation_learning_rate
-            global_perturbation += current_pert * perturbation_learning_rate
+                                                   )
+                # update towards difference, or absolute value?
+                # global_perturbation += (current_pert - global_perturbation) * perturbation_learning_rate
+                if counter % batch_size == 0:
+                    global_perturbation += current_pert * perturbation_learning_rate / batch_size
+                    batch_pert = None
+                else:
+                    if batch_pert is None:
+                        batch_pert = copy.deepcopy(current_pert)
+                    else:
+                        batch_pert += current_pert
 
-            if counter % report_stat_interval == 0:
-                if save_sample:
-                    global_perturb_np: np.ndarray
-                    global_perturb_np = global_perturbation.cpu().detach().numpy()[0]
-                    save_image(global_perturb_np, 'iter_' + str(counter),
-                               save_path + 'global_ptb', normalize=True)
-                    mask_dec = CityscapeDataset.decode_target(mask)
-                    mask2_dec = CityscapeDataset.decode_target(mask2)
-                    save_image(mask_dec, f"mask_{counter}", save_path + "masks", normalize=False)
-                    save_image(mask2_dec, f"mask_{counter}", save_path + "masks2", normalize=False)
-                linf = torch.max(global_perturbation)
-                l2 = torch.sum(global_perturbation * global_perturbation)
-                # print(f"Iter: {counter}\t Linf: {linf}\t L2: {l2}")
-                if logger_agent is not None:
-                    logger_agent.log_variable("Iteration", counter)
-                    logger_agent.log_variable("Linf", linf)
-                    logger_agent.log_variable("L2", l2)
-            counter += 1
+                if counter % report_stat_interval == 0:
+                    if save_sample:
+                        global_perturb_np: np.ndarray
+                        global_perturb_np = global_perturbation.cpu().detach().numpy()[0]
+                        save_image(global_perturb_np, 'iter_' + str(counter),
+                                   save_path + 'global_ptb', normalize=True)
+                        mask_dec = CityscapeDataset.decode_target(mask)
+                        mask2_dec = CityscapeDataset.decode_target(mask2)
+                        save_image(mask_dec, f"mask_{counter}", save_path + "masks", normalize=False)
+                        save_image(mask2_dec, f"mask_{counter}", save_path + "masks2", normalize=False)
+                    linf = torch.max(global_perturbation)
+                    l2 = torch.sum(global_perturbation * global_perturbation)
+                    # print(f"Iter: {counter}\t Linf: {linf}\t L2: {l2}")
+                    if logger_agent is not None:
+                        logger_agent.log_variable("Iteration", counter)
+                        logger_agent.log_variable("Linf", linf)
+                        logger_agent.log_variable("L2", l2)
+                counter += 1
         save_image(global_perturbation, "global_pert", save_path, normalize=True)
         if eval_dataset is None:
             return global_perturbation
@@ -543,7 +565,8 @@ class AdaptiveSegmentationMaskAttack:
                                      org_mask: torch.Tensor,
                                      target_mask: torch.Tensor,
                                      *,
-                                     select_l1_method: typing.Callable = None,
+                                     select_l1_method: SelectL1Method = None,
+                                     additional_select_postprocessing: typing.Collection[L1SelectionPostprocessing] = None,
                                      kwargs_for_metrics: dict[str, typing.Any] = None,
                                      initial_perturbation: torch.Tensor = None,
                                      loss_metric: str = "l2",
@@ -570,7 +593,9 @@ class AdaptiveSegmentationMaskAttack:
         if select_l1_method is None:
             select_l1_method = SelectRectL1IntenseRegion(width=width // 16,
                                                          height=height // 16,
-                                                         number_of_rec=32)
+                                                         number_of_rec=4,
+                                                         allow_overlap=False,
+                                                         overlap_threshold=(height + width)//64)
         print(input_image.shape, org_mask.shape, target_mask.shape)
 
         first_l1_pert = self.perform_attack(input_image, org_mask, target_mask,
@@ -587,6 +612,9 @@ class AdaptiveSegmentationMaskAttack:
                                             )
         selected_l1_mask: torch.Tensor
         selected_l1_mask = select_l1_method(first_l1_pert)
+        if additional_select_postprocessing is not None:
+            for pros_meth in additional_select_postprocessing:
+                selected_l1_mask = pros_meth(org_mask, selected_l1_mask)
         print(f"-------------------------------- l1 completed")
         print(type(selected_l1_mask))
         print(input_image.shape, org_mask.shape, target_mask.shape)

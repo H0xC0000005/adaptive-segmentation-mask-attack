@@ -1,17 +1,9 @@
 import collections
-import copy
-
-import numpy as np
 import pandas as pd
-import setuptools.wheel
-import torch
-from PIL import Image
 from stats_logger import StatsLogger
-
 import network._deeplab
 # In-repo imports
 from cityscape_dataset import CityscapeDataset
-from helper_functions import load_model, save_image
 from adaptive_attack import AdaptiveSegmentationMaskAttack
 from self_defined_loss import *
 import torch.nn as nn
@@ -177,66 +169,75 @@ if __name__ == '__main__':
                                                  allow_overlap=False,
                                                  overlap_threshold=200,
                                                  )
+    l1m_2 = SelectTopKPoints(8, dot_radius=2, threshold=None)
 
-    adaptive_attack.perform_attack(im2,
-                                   mask2,
-                                   None,
-                                   loss_metric="l1",
-                                   save_path=save_path,
-                                   target_class_list=[5, 7, 11, 13],
-                                   total_iter=400,
-                                   report_stat_interval=20,
-                                   verbose=False,
-                                   report_stats=False,
-                                   perturbation_mask=None,
-                                   classification_vs_norm_ratio=1 / 4,
-                                   early_stopping_accuracy_threshold=None,
-                                   additional_loss_metric=None,
-                                   additional_loss_weights=[16],
-                                   logger_agent=lg_agt,
-                                   logging_variables=logging_var,
-                                   step_update_multiplier=1,
-                                   dynamic_LR_option=None,
-                                   )
-
-    # adaptive_attack.perform_L1plus_second_attack(im2,
-    #                                              mask2,
-    #                                              mask1,
-    #                                              loss_metric="l1",
-    #                                              save_attack_samples=True,
-    #                                              save_attack_path=root + "adv_results/cityscapes_results/attack/",
-    #                                              save_l1_samples=True,
-    #                                              save_l1_path=root + "adv_results/cityscapes_results/l1mask/",
-    #                                              target_class_list=[target],
-    #                                              total_iter=800,
-    #                                              report_stat_interval=50,
-    #                                              report_stat=True,
-    #                                              classification_vs_norm_ratio=1 / 16,
-    #                                              select_l1_method=select_l1_method,
-    #                                              additional_loss_metric=additional_loss,
-    #                                              additional_loss_weights=[8],
-    #                                              step_update_multiplier=8
-    #                                              )
-
-    # mask1 = np.ones(mask1.shape, dtype='uint8')
-    # print(f"mask1 created with shape {mask1.shape}")
-    # mask1 = torch.from_numpy(mask1)
-    # adaptive_attack.perform_attack(im2,
-    #                                mask2,
-    #                                mask1,
-    #                                unique_class_list=[0, 1, 13],
-    #                                total_iter=200,
-    #                                verbose=False)
-    # mask_2cp = copy.deepcopy(mask2)
-    # mask_2cp[mask_2cp == 13] = 1
-    # # mask_2cp[0:2, 0:2] = 13
     # adaptive_attack.perform_attack(im2,
     #                                mask2,
     #                                None,
-    #                                unique_class_list=[0, 13],
     #                                loss_metric="l1",
-    #                                total_iter=200,
-    #                                verbose=False)
+    #                                save_path=save_path,
+    #                                target_class_list=[5, 7, 11, 13],
+    #                                total_iter=400,
+    #                                report_stat_interval=20,
+    #                                verbose=False,
+    #                                report_stats=False,
+    #                                perturbation_mask=None,
+    #                                classification_vs_norm_ratio=1 / 4,
+    #                                early_stopping_accuracy_threshold=None,
+    #                                additional_loss_metric=None,
+    #                                additional_loss_weights=[16],
+    #                                logger_agent=lg_agt,
+    #                                logging_variables=logging_var,
+    #                                step_update_multiplier=1,
+    #                                dynamic_LR_option=None,
+    #                                )
+    # def perform_L1plus_second_attack(self,
+    #                                  input_image: torch.Tensor,
+    #                                  org_mask: torch.Tensor,
+    #                                  target_mask: torch.Tensor,
+    #                                  *,
+    #                                  select_l1_method: SelectL1Method = None,
+    #                                  additional_select_postprocessing: typing.Collection[L1SelectionPostprocessing] =
+    #                                  None,
+    #                                  kwargs_for_metrics: dict[str, typing.Any] = None,
+    #                                  initial_perturbation: torch.Tensor = None,
+    #                                  loss_metric: str = "l2",
+    #                                  additional_loss_metric: typing.Collection = None,
+    #                                  additional_loss_weights: typing.Collection = None,
+    #                                  target_class_list: typing.Collection,
+    #                                  total_iter: int = 500,
+    #                                  classification_vs_norm_ratio: float = 1 / 16,
+    #                                  step_update_multiplier: float = 4,
+    #                                  report_stat: bool = True,
+    #                                  report_stat_interval: int = 25,
+    #                                  save_l1_samples: bool = False,
+    #                                  save_l1_path: str = None,
+    #                                  save_attack_samples: bool = False,
+    #                                  save_attack_path: str = None,
+    #
+    #                                  ) -> torch.Tensor:
+
+    postpro = [MaskingToOriginalClass()]
+    adaptive_attack.perform_L1plus_second_attack(im2,
+                                                 mask2,
+                                                 mask1,
+                                                 loss_metric="l1",
+                                                 select_l1_method=l1m_2,
+                                                 additional_select_postprocessing=postpro,
+                                                 save_attack_samples=True,
+                                                 save_attack_path=root + "adv_results/cityscapes_results/attack/",
+                                                 save_l1_samples=True,
+                                                 save_l1_path=root + "adv_results/cityscapes_results/l1mask/",
+                                                 target_class_list=[target],
+                                                 total_iter=800,
+                                                 report_stat_interval=50,
+                                                 report_stat=True,
+                                                 classification_vs_norm_ratio=1 / 16,
+                                                 additional_loss_metric=additional_loss,
+                                                 additional_loss_weights=[8],
+                                                 step_update_multiplier=8,
+                                                 )
+
     ldf: pd.DataFrame
     ldf = lg_agt.export_dataframe(logging_var)
     # ldf.to_csv(f"{save_path}single_atk.csv")
