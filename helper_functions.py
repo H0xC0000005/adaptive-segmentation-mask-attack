@@ -362,7 +362,8 @@ def compute_conv2d_output_shape(in_size: tuple | list,
 
 def absolute_index_to_tuple_index(absolute_idx: int,
                                   shape: tuple) -> tuple:
-    assert len(shape) > 1, f"in absolute idx to tuple idx, received shape with len 1. you dont need this conversion :)"
+    assert len(shape) > 1, f"in absolute idx to tuple idx, received shape {shape} " \
+                           f"with len 1. you dont need this conversion :)"
     cur_divisor = 1
     cur_amount = absolute_idx
     # print(shape)
@@ -434,7 +435,7 @@ class SelectRectL1IntenseRegion(SelectL1Method):
     a closure to select rectangular most intense region for L1 perturbation
     """
 
-    def __init__(self, height: int, width: int, number_of_rec: int, in_channels: int = 3, allow_overlap: bool = True,
+    def __init__(self, height: int, width: int, number_of_rec: int, allow_overlap: bool = True,
                  overlap_threshold: float = None):
         super().__init__()
         if not allow_overlap and overlap_threshold is None:
@@ -443,11 +444,11 @@ class SelectRectL1IntenseRegion(SelectL1Method):
         self.allow_overlap = allow_overlap
         self.width = width
         self.height = height
-        self.conv = torch.nn.Conv2d(in_channels=in_channels,
+        self.conv = torch.nn.Conv2d(in_channels=1,
                                     out_channels=1,
                                     kernel_size=(width, height),
                                     bias=False)
-        self.conv.weight.data = torch.ones(size=(1, in_channels, width, height))
+        self.conv.weight.data = torch.ones(size=(1, 1, width, height))
         self.number_of_rec = number_of_rec
 
     def __call__(self, *args, **kwargs) -> torch.Tensor:
@@ -459,7 +460,8 @@ class SelectRectL1IntenseRegion(SelectL1Method):
 
         print(f">> called select rect region: \n"
               f"height: {self.width}, width: {self.height}, num: {self.number_of_rec}\n"
-              f"allow?: {self.allow_overlap}, thres: {self.overlap_threshold}")
+              f"allow?: {self.allow_overlap}, thres: {self.overlap_threshold}\n"
+              f"received mask size {args[0].shape}")
         mask: torch.Tensor
         mask = args[0]
 
@@ -539,7 +541,7 @@ class SelectTopKPoints(SelectL1Method):
         mask = torch.sum(mask, dim=0)
         mask = mask.unsqueeze(0)
         mask_flattened = torch.flatten(mask)
-        mask_size = mask_flattened.shape
+        mask_size = mask.shape
         result_mask = torch.zeros(size=mask.shape[-2:], device=self.device)
         topk_indices = torch.topk(mask_flattened,
                                   k=self.k).indices
@@ -551,6 +553,7 @@ class SelectTopKPoints(SelectL1Method):
             result_mask[cur_idx[-2]-dr: cur_idx[-2]+dr+1, cur_idx[-1]-dr: cur_idx[-1]+dr+1] += 1
         # clamp all 0+ entries to 1
         result_mask[result_mask != 0] = 1
+        # print("dev>>>", result_mask.device)
         return result_mask
 
 
@@ -564,8 +567,8 @@ class MaskingToOriginalClass(L1SelectionPostprocessing):
         pass
 
     def __call__(self, *args, **kwargs) -> torch.Tensor:
-        org_mask = args[0]
-        l1_mask = args[1]
+        org_mask = copy.deepcopy(args[0])
+        l1_mask = copy.deepcopy(args[1])
         assert isinstance(org_mask, torch.Tensor), f"in masking to original class, received org mask as type " \
                                                    f"{type(org_mask)} instead of torch tensor"
         assert isinstance(l1_mask, torch.Tensor), f"in masking to original class, received l1 mask as type " \

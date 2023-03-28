@@ -13,6 +13,8 @@ from adaptive_attack import AdaptiveSegmentationMaskAttack
 import torch.nn as nn
 import time
 
+from stats_logger import StatsLogger
+
 # USE_CPU = True
 USE_CPU = False
 
@@ -115,16 +117,17 @@ if __name__ == '__main__':
     pert = adaptive_attack.perform_static_universal_attack(cityscape_dataset,
                                                            target_mask=mask1,
                                                            loss_metric="l1",
-                                                           each_step_iter=128,
+                                                           each_step_iter=32,
                                                            save_sample=True,
                                                            verbose=False,
                                                            save_path='./adv_results/cityscapes_TSV_results/',
                                                            report_stat_interval=5,
                                                            early_stopping_accuracy_threshold=None,
                                                            perturbation_learning_rate=60e-3,
-                                                           attack_learning_multiplier=128,
+                                                           attack_learning_multiplier=1024,
                                                            eval_dataset=cityscape_dataset_eval,
                                                            eval_model=model,
+                                                           logger_agent=StatsLogger()
 
                                                            )
 

@@ -1,9 +1,17 @@
 import collections
+import copy
+
+import numpy as np
 import pandas as pd
+import setuptools.wheel
+import torch
+from PIL import Image
 from stats_logger import StatsLogger
+
 import network._deeplab
 # In-repo imports
 from cityscape_dataset import CityscapeDataset
+from helper_functions import load_model, save_image
 from adaptive_attack import AdaptiveSegmentationMaskAttack
 from self_defined_loss import *
 import torch.nn as nn
@@ -154,8 +162,8 @@ if __name__ == '__main__':
     save_path = root + "adv_results/cityscapes_UO_results/"
 
     # hiding attack
-    # mask1 = copy.deepcopy(mask2)
-    # mask1[mask1 == original] = target
+    mask1 = copy.deepcopy(mask2)
+    mask1[mask1 == original] = target
 
     pert_mask = copy.deepcopy(mask2)
     pert_mask[pert_mask == original] = -1
@@ -163,13 +171,47 @@ if __name__ == '__main__':
     pert_mask[pert_mask == -1] = 1
     additional_loss = [total_variation]
     dynamic_LR_option = "incr"
-    select_l1_method = SelectRectL1IntenseRegion(width=150,
-                                                 height=100,
-                                                 number_of_rec=8,
-                                                 allow_overlap=False,
-                                                 overlap_threshold=200,
-                                                 )
-    l1m_2 = SelectTopKPoints(8, dot_radius=2, threshold=None)
+    l1m_1 = SelectRectL1IntenseRegion(width=50,
+                                      height=50,
+                                      number_of_rec=8,
+                                      allow_overlap=False,
+                                      overlap_threshold=50,
+                                      )
+
+    # adaptive_attack.perform_attack(im2,
+    #                                mask2,
+    #                                None,
+    #                                loss_metric="l1",
+    #                                save_path=save_path,
+    #                                target_class_list=[5, 7, 11, 13],
+    #                                total_iter=400,
+    #                                report_stat_interval=20,
+    #                                verbose=False,
+    #                                report_stats=False,
+    #                                perturbation_mask=None,
+    #                                classification_vs_norm_ratio=1 / 4,
+    #                                early_stopping_accuracy_threshold=None,
+    #                                additional_loss_metric=None,
+    #                                additional_loss_weights=[16],
+    #                                logger_agent=lg_agt,
+    #                                logging_variables=logging_var,
+    #                                step_update_multiplier=1,
+    #                                dynamic_LR_option=None,
+    #                                )
+
+    # mask1 = np.ones(mask1.shape, dtype='uint8')
+    # print(f"mask1 created with shape {mask1.shape}")
+    # mask1 = torch.from_numpy(mask1)
+    # adaptive_attack.perform_attack(im2,
+    #                                mask2,
+    #                                mask1,
+    #                                unique_class_list=[0, 1, 13],
+    #                                total_iter=200,
+    #                                verbose=False)
+    # mask_2cp = copy.deepcopy(mask2)
+    # mask_2cp[mask_2cp == 13] = 1
+    # # mask_2cp[0:2, 0:2] = 13
+    l1m_2 = SelectTopKPoints(16, dot_radius=1, threshold=None)
 
     # adaptive_attack.perform_attack(im2,
     #                                mask2,
@@ -218,24 +260,32 @@ if __name__ == '__main__':
     #                                  ) -> torch.Tensor:
 
     postpro = [MaskingToOriginalClass()]
+    # save_image(CityscapeDataset.decode_target(mask2.cpu()), "test_mask", root + "adv_results/test/")
     adaptive_attack.perform_L1plus_second_attack(im2,
                                                  mask2,
                                                  mask1,
                                                  loss_metric="l1",
-                                                 select_l1_method=l1m_2,
+                                                 select_l1_method=l1m_1,
                                                  additional_select_postprocessing=postpro,
                                                  save_attack_samples=True,
-                                                 save_attack_path=root + "adv_results/cityscapes_results/attack/",
+                                                 save_attack_path=root + "adv_results/l1lnrect50n8/attack/",
                                                  save_l1_samples=True,
-                                                 save_l1_path=root + "adv_results/cityscapes_results/l1mask/",
+                                                 save_l1_path=root + "adv_results/l1lnrect50n8/l1mask/",
+                                                 save_mask_sample=True,
+                                                 save_mask_path=root + "adv_results/l1lnrect50n8/selected_mask",
                                                  target_class_list=[target],
-                                                 total_iter=800,
-                                                 report_stat_interval=50,
+                                                 l1_total_iter=100,
+                                                 atk_total_iter=200,
+                                                 report_stat_interval=25,
                                                  report_stat=True,
                                                  classification_vs_norm_ratio=1 / 16,
                                                  additional_loss_metric=additional_loss,
                                                  additional_loss_weights=[8],
-                                                 step_update_multiplier=8,
+                                                 step_update_multiplier=256,
+
+                                                 logger_agent=lg_agt,
+                                                 logging_variables=logging_var,
+
                                                  )
 
     ldf: pd.DataFrame

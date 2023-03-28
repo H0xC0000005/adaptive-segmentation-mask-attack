@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import gc
 import random
+import typing
 from os.path import isfile
 
 import torch
@@ -573,7 +574,8 @@ class AdaptiveSegmentationMaskAttack:
                                      additional_loss_metric: typing.Collection = None,
                                      additional_loss_weights: typing.Collection = None,
                                      target_class_list: typing.Collection,
-                                     total_iter: int = 500,
+                                     l1_total_iter: int = 50,
+                                     atk_total_iter: int = 500,
                                      classification_vs_norm_ratio: float = 1 / 16,
                                      step_update_multiplier: float = 4,
                                      report_stat: bool = True,
@@ -582,6 +584,12 @@ class AdaptiveSegmentationMaskAttack:
                                      save_l1_path: str = None,
                                      save_attack_samples: bool = False,
                                      save_attack_path: str = None,
+                                     save_mask_path: str = None,
+                                     save_mask_sample: bool = False,
+                                     early_stopping_threshold: float = None,
+
+                                     logger_agent: StatsLogger = None,
+                                     logging_variables: typing.Collection = None,
 
                                      ) -> torch.Tensor:
         """
@@ -589,6 +597,19 @@ class AdaptiveSegmentationMaskAttack:
 
         select_l1_method should be a callable that is a closure. a closure is defined here with default args
         """
+        if save_attack_samples:
+            save_attack_path += f"/l1{l1_total_iter}_ln{atk_total_iter}"
+        if save_mask_sample:
+            save_mask_path += f"/l1{l1_total_iter}_ln{atk_total_iter}"
+        if save_l1_samples:
+            save_l1_path += f"/l1{l1_total_iter}_ln{atk_total_iter}"
+
+
+        if not self.use_cpu:
+            org_mask = org_mask.cuda(self.device_id)
+        else:
+            org_mask = org_mask.cpu()
+        print(">>>>>", org_mask.device, self.device_id)
         width, height = input_image.shape[-2], input_image.shape[-1]
         if select_l1_method is None:
             select_l1_method = SelectRectL1IntenseRegion(width=width // 16,
@@ -601,20 +622,25 @@ class AdaptiveSegmentationMaskAttack:
         first_l1_pert = self.perform_attack(input_image, org_mask, target_mask,
                                             target_class_list=target_class_list,
                                             loss_metric="l1",
-                                            total_iter=total_iter,
+                                            total_iter=l1_total_iter,
                                             classification_vs_norm_ratio=classification_vs_norm_ratio / 2,
                                             save_samples=save_l1_samples,
                                             verbose=False,
                                             report_stats=report_stat,
                                             report_stat_interval=report_stat_interval,
                                             save_path=save_l1_path,
+                                            early_stopping_accuracy_threshold=None,
 
                                             )
         selected_l1_mask: torch.Tensor
+        print(f"L1 perturbation shape: {first_l1_pert.shape}")
         selected_l1_mask = select_l1_method(first_l1_pert)
+        # print(selected_l1_mask.device)
         if additional_select_postprocessing is not None:
             for pros_meth in additional_select_postprocessing:
                 selected_l1_mask = pros_meth(org_mask, selected_l1_mask)
+        if save_mask_sample:
+            save_image(selected_l1_mask, "selected_mask", save_mask_path)
         print(f"-------------------------------- l1 completed")
         print(type(selected_l1_mask))
         print(input_image.shape, org_mask.shape, target_mask.shape)
@@ -626,14 +652,17 @@ class AdaptiveSegmentationMaskAttack:
                                           kwargs_for_metrics=kwargs_for_metrics,
                                           additional_loss_metric=additional_loss_metric,
                                           additional_loss_weights=additional_loss_weights,
-                                          total_iter=total_iter,
+                                          total_iter=atk_total_iter,
                                           classification_vs_norm_ratio=classification_vs_norm_ratio,
                                           step_update_multiplier=step_update_multiplier,
                                           save_samples=save_attack_samples,
                                           save_path=save_attack_path,
                                           report_stats=report_stat,
                                           report_stat_interval=report_stat_interval,
+                                          early_stopping_accuracy_threshold=None,
 
+                                          logger_agent=logger_agent,
+                                          logging_variables=logging_variables
                                           )
         return second_pert
 
@@ -736,7 +765,7 @@ class AdaptiveSegmentationMaskAttack:
         if save_samples:
             # Save masks
             verbose_print(f"> saving masks to location {save_path}")
-            dec_org_mask = CityscapeDataset.decode_target(org_mask.numpy())
+            dec_org_mask = CityscapeDataset.decode_target(org_mask.cpu().detach().numpy())
             verbose_print(f"saving masks. mask size: {dec_org_mask.shape}")
             save_image(dec_org_mask, 'original_mask', save_path)
             if target_mask is not None:
@@ -962,7 +991,7 @@ class AdaptiveSegmentationMaskAttack:
                 else:
                     prev_iou = iou
 
-        if save_samples:
+        if save_samples and logger_agent is not None:
             logger_agent.save_variables(logging_variables, save_path + f"{save_suffix}.csv")
         # unormalized final diff as perturbation. throw it back
         final_diff = save_batch_image_difference(image_to_optimize.data,
