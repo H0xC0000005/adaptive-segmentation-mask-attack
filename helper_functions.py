@@ -441,6 +441,7 @@ def invert_binary_mask(mask: torch.Tensor) -> torch.Tensor:
 
 
 def evaluate_externality(pert_mask: torch.Tensor,
+                         org_mask: torch.Tensor,
                          pred_mask: torch.Tensor,
                          target_class: int,
                          *,
@@ -453,6 +454,7 @@ def evaluate_externality(pert_mask: torch.Tensor,
     evaluation mask: evaluation region binary mask
     """
     pert_maskc = copy.deepcopy(pert_mask)
+    org_maskc_inv = convert_multiclass_mask_to_binary(org_mask, target_class, invert_flag=True)
     pred_maskc = convert_multiclass_mask_to_binary(pred_mask, target_class, invert_flag=False)
     if evaluation_mask is not None:
         pert_maskc *= evaluation_mask
@@ -461,7 +463,8 @@ def evaluate_externality(pert_mask: torch.Tensor,
     pert_maskc[pert_maskc != 0] = 1
     pred_maskc[pred_maskc != 0] = 1
 
-    # set pert mask region to 0
+    # set original class and pert mask region to 0
+    pred_maskc *= org_maskc_inv
     pred_maskc *= invert_binary_mask(pert_mask)
 
     # ratio of target class outside pert mask vs size of pert mask as externality

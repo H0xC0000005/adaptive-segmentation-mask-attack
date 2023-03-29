@@ -680,12 +680,14 @@ class AdaptiveSegmentationMaskAttack:
         print(second_pert.device)
         if self.use_cpu:
             input_image = input_image.cpu()
+            org_mask = org_mask.cpu()
         else:
             input_image = input_image.cuda(self.device_id)
+            org_mask = org_mask.cuda(self.device_id)
         pred_mask = self.do_model_prediction(input_image=input_image + second_pert)
         externality = 0
         for target_class in target_class_list:
-            externality += evaluate_externality(selected_l1_mask, pred_mask, target_class)
+            externality += evaluate_externality(selected_l1_mask, org_mask, pred_mask, target_class)
         externality /= len(target_class_list)
 
         # Create a file object in write mode
