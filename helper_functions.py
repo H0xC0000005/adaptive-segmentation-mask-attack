@@ -417,7 +417,7 @@ def convert_multiclass_mask_to_binary(mask: torch.Tensor,
                                       invert_flag: bool = False
                                       ) -> torch.Tensor:
     result = copy.deepcopy(mask)
-    class_set = set(np.array(torch.unique(mask)))
+    class_set = set(np.array(torch.unique(mask.cpu().detach())))
     temp_class = None
     while temp_class is None or temp_class in class_set:
         temp_class = random.randint(-65536, 65535)
@@ -438,6 +438,37 @@ def invert_binary_mask(mask: torch.Tensor) -> torch.Tensor:
     maskc[maskc == 0] = 1
     maskc[maskc == 255] = 0
     return maskc
+
+
+def evaluate_externality(pert_mask: torch.Tensor,
+                         pred_mask: torch.Tensor,
+                         target_class: int,
+                         *,
+                         evaluation_mask: torch.Tensor = None,
+                         ) -> float:
+    """
+    compute externality by perturbation in pert_mask.
+    pert_mask: binary perturbation mask
+    pred_mask: prediction of perturbed image
+    evaluation mask: evaluation region binary mask
+    """
+    pert_maskc = copy.deepcopy(pert_mask)
+    pred_maskc = convert_multiclass_mask_to_binary(pred_mask, target_class, invert_flag=False)
+    if evaluation_mask is not None:
+        pert_maskc *= evaluation_mask
+        pred_maskc *= evaluation_mask
+    # risky != 0 comparison?
+    pert_maskc[pert_maskc != 0] = 1
+    pred_maskc[pred_maskc != 0] = 1
+
+    # set pert mask region to 0
+    pred_maskc *= invert_binary_mask(pert_mask)
+
+    # ratio of target class outside pert mask vs size of pert mask as externality
+    pred_sum = float(torch.sum(pred_maskc))
+    # print(pred_sum)
+    externality = pred_sum / float(torch.sum(pert_maskc))
+    return externality
 
 
 """

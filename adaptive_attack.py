@@ -610,34 +610,6 @@ class AdaptiveSegmentationMaskAttack:
         select_l1_method should be a callable that is a closure. a closure is defined here with default args
         """
 
-        def evaluate_externality(pert_mask: torch.Tensor,
-                                 pred_mask: torch.Tensor,
-                                 target_class: int,
-                                 *,
-                                 evaluation_mask: torch.Tensor = None,
-                                 ) -> float:
-            """
-            compute externality by perturbation in pert_mask.
-            pert_mask: binary perturbation mask
-            pred_mask: prediction of perturbed image
-            evaluation mask: evaluation region binary mask
-            """
-            pert_maskc = copy.deepcopy(pert_mask)
-            pred_maskc = convert_multiclass_mask_to_binary(pred_mask, target_class, invert_flag=False)
-            if evaluation_mask is not None:
-                pert_maskc *= evaluation_mask
-                pred_maskc *= evaluation_mask
-            # risky != 0 comparison?
-            pert_maskc[pert_maskc != 0] = 1
-            pred_maskc[pred_maskc != 0] = 1
-
-            # set pert mask region to 0
-            pred_maskc *= invert_binary_mask(pert_mask)
-
-            # ratio of target class outside pert mask vs size of pert mask as externality
-            externality = float(torch.sum(pert_maskc)) / float(torch.sum(pert_maskc))
-            return externality
-
         if save_attack_samples:
             save_attack_path += f"/l1{l1_total_iter}_ln{atk_total_iter}"
         if save_mask_sample:
@@ -704,6 +676,12 @@ class AdaptiveSegmentationMaskAttack:
                                           logger_agent=logger_agent,
                                           logging_variables=logging_variables
                                           )
+        print(input_image.device)
+        print(second_pert.device)
+        if self.use_cpu:
+            input_image = input_image.cpu()
+        else:
+            input_image = input_image.cuda(self.device_id)
         pred_mask = self.do_model_prediction(input_image=input_image + second_pert)
         externality = 0
         for target_class in target_class_list:
