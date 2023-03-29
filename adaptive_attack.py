@@ -597,6 +597,9 @@ class AdaptiveSegmentationMaskAttack:
 
         select_l1_method should be a callable that is a closure. a closure is defined here with default args
         """
+
+        def evaluate_externality(pert_m)
+
         if save_attack_samples:
             save_attack_path += f"/l1{l1_total_iter}_ln{atk_total_iter}"
         if save_mask_sample:
@@ -629,7 +632,7 @@ class AdaptiveSegmentationMaskAttack:
                                             report_stats=report_stat,
                                             report_stat_interval=report_stat_interval,
                                             save_path=save_l1_path,
-                                            early_stopping_accuracy_threshold=None,
+                                            early_stopping_accuracy_threshold=early_stopping_threshold,
 
                                             )
         selected_l1_mask: torch.Tensor
@@ -659,11 +662,12 @@ class AdaptiveSegmentationMaskAttack:
                                           save_path=save_attack_path,
                                           report_stats=report_stat,
                                           report_stat_interval=report_stat_interval,
-                                          early_stopping_accuracy_threshold=None,
+                                          early_stopping_accuracy_threshold=early_stopping_threshold,
 
                                           logger_agent=logger_agent,
                                           logging_variables=logging_variables
                                           )
+
         return second_pert
 
     def perform_attack(self,
