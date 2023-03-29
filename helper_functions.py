@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import random
 import typing
 from math import floor
 
@@ -411,6 +412,34 @@ def l1d(t1: np.ndarray | torch.Tensor | tuple | list,
     return float(diff_sum)
 
 
+def convert_multiclass_mask_to_binary(mask: torch.Tensor,
+                                      target_class: int,
+                                      invert_flag: bool = False
+                                      ) -> torch.Tensor:
+    result = copy.deepcopy(mask)
+    class_set = set(np.array(torch.unique(mask)))
+    temp_class = None
+    while temp_class is None or temp_class in class_set:
+        temp_class = random.randint(-65536, 65535)
+
+    result[result == target_class] = temp_class
+    if not invert_flag:
+        result[result != temp_class] = 0
+        result[result == temp_class] = 1
+    else:
+        result[result != temp_class] = 1
+        result[result == temp_class] = 0
+    return result
+
+
+def invert_binary_mask(mask: torch.Tensor) -> torch.Tensor:
+    maskc = copy.deepcopy(mask)
+    maskc[maskc != 0] = 255
+    maskc[maskc == 0] = 1
+    maskc[maskc == 255] = 0
+    return maskc
+
+
 """
 closures for various purposes
 """
@@ -550,7 +579,7 @@ class SelectTopKPoints(SelectL1Method):
             cur_idx = absolute_index_to_tuple_index(flt_idx, mask_size)
             # mark result mask with corresponding rectangle
             dr = self.dot_radius
-            result_mask[cur_idx[-2]-dr: cur_idx[-2]+dr+1, cur_idx[-1]-dr: cur_idx[-1]+dr+1] += 1
+            result_mask[cur_idx[-2] - dr: cur_idx[-2] + dr + 1, cur_idx[-1] - dr: cur_idx[-1] + dr + 1] += 1
         # clamp all 0+ entries to 1
         result_mask[result_mask != 0] = 1
         # print("dev>>>", result_mask.device)

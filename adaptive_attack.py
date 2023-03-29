@@ -133,6 +133,17 @@ class AdaptiveSegmentationMaskAttack:
         """
         pass
 
+    def do_model_prediction(self, input_image: torch.Tensor) -> torch.Tensor:
+
+        # Image to perform the attack on
+        image_to_optimize: torch.Tensor
+        image_to_optimize = input_image.unsqueeze(0)
+        # Forward pass
+        out: torch.Tensor
+        out = self.model(image_to_optimize)
+        pred_out = torch.argmax(out, dim=1).float()
+        return pred_out
+
     def calculate_target_pred_loss(self, target_mask, pred_out, model_output,
                                    target_class: typing.Iterable[int] = None):
         # pred_loss = self.calculate_target_pred_loss(target_mask, pred_out, out, target_class=target_classes)
@@ -567,13 +578,14 @@ class AdaptiveSegmentationMaskAttack:
                                      target_mask: torch.Tensor,
                                      *,
                                      select_l1_method: SelectL1Method = None,
-                                     additional_select_postprocessing: typing.Collection[L1SelectionPostprocessing] = None,
+                                     additional_select_postprocessing: typing.Collection[
+                                         L1SelectionPostprocessing] = None,
                                      kwargs_for_metrics: dict[str, typing.Any] = None,
                                      initial_perturbation: torch.Tensor = None,
                                      loss_metric: str = "l2",
                                      additional_loss_metric: typing.Collection = None,
                                      additional_loss_weights: typing.Collection = None,
-                                     target_class_list: typing.Collection,
+                                     target_class_list: typing.Collection[int],
                                      l1_total_iter: int = 50,
                                      atk_total_iter: int = 500,
                                      classification_vs_norm_ratio: float = 1 / 16,
@@ -598,7 +610,33 @@ class AdaptiveSegmentationMaskAttack:
         select_l1_method should be a callable that is a closure. a closure is defined here with default args
         """
 
-        def evaluate_externality(pert_m)
+        def evaluate_externality(pert_mask: torch.Tensor,
+                                 pred_mask: torch.Tensor,
+                                 target_class: int,
+                                 *,
+                                 evaluation_mask: torch.Tensor = None,
+                                 ) -> float:
+            """
+            compute externality by perturbation in pert_mask.
+            pert_mask: binary perturbation mask
+            pred_mask: prediction of perturbed image
+            evaluation mask: evaluation region binary mask
+            """
+            pert_maskc = copy.deepcopy(pert_mask)
+            pred_maskc = convert_multiclass_mask_to_binary(pred_mask, target_class, invert_flag=False)
+            if evaluation_mask is not None:
+                pert_maskc *= evaluation_mask
+                pred_maskc *= evaluation_mask
+            # risky != 0 comparison?
+            pert_maskc[pert_maskc != 0] = 1
+            pred_maskc[pred_maskc != 0] = 1
+
+            # set pert mask region to 0
+            pred_maskc *= invert_binary_mask(pert_mask)
+
+            # ratio of target class outside pert mask vs size of pert mask as externality
+            externality = float(torch.sum(pert_maskc)) / float(torch.sum(pert_maskc))
+            return externality
 
         if save_attack_samples:
             save_attack_path += f"/l1{l1_total_iter}_ln{atk_total_iter}"
@@ -606,7 +644,6 @@ class AdaptiveSegmentationMaskAttack:
             save_mask_path += f"/l1{l1_total_iter}_ln{atk_total_iter}"
         if save_l1_samples:
             save_l1_path += f"/l1{l1_total_iter}_ln{atk_total_iter}"
-
 
         if not self.use_cpu:
             org_mask = org_mask.cuda(self.device_id)
@@ -619,7 +656,7 @@ class AdaptiveSegmentationMaskAttack:
                                                          height=height // 16,
                                                          number_of_rec=4,
                                                          allow_overlap=False,
-                                                         overlap_threshold=(height + width)//64)
+                                                         overlap_threshold=(height + width) // 64)
         print(input_image.shape, org_mask.shape, target_mask.shape)
 
         first_l1_pert = self.perform_attack(input_image, org_mask, target_mask,
@@ -667,6 +704,19 @@ class AdaptiveSegmentationMaskAttack:
                                           logger_agent=logger_agent,
                                           logging_variables=logging_variables
                                           )
+        pred_mask = self.do_model_prediction(input_image=input_image + second_pert)
+        externality = 0
+        for target_class in target_class_list:
+            externality += evaluate_externality(selected_l1_mask, pred_mask, target_class)
+        externality /= len(target_class_list)
+
+        # Create a file object in write mode
+        with open(save_mask_path + "/externality.txt", "w") as file:
+            # Write the float variable to the file
+            file.write(str(externality))
+
+        # Close the file
+        file.close()
 
         return second_pert
 
