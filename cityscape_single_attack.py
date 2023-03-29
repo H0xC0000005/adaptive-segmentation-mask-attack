@@ -171,8 +171,8 @@ if __name__ == '__main__':
     pert_mask[pert_mask == -1] = 1
     additional_loss = [total_variation]
     dynamic_LR_option = "incr"
-    l1m_1 = SelectRectL1IntenseRegion(width=50,
-                                      height=50,
+    l1m_1 = SelectRectL1IntenseRegion(width=25,
+                                      height=25,
                                       number_of_rec=8,
                                       allow_overlap=False,
                                       overlap_threshold=25,
@@ -268,11 +268,11 @@ if __name__ == '__main__':
                                                  select_l1_method=l1m_1,
                                                  additional_select_postprocessing=postpro,
                                                  save_attack_samples=True,
-                                                 save_attack_path=root + "adv_results/l1lnrect50n8t25/attack/",
+                                                 save_attack_path=root + "adv_results/l1lnrect25n8t25/attack/",
                                                  save_l1_samples=True,
-                                                 save_l1_path=root + "adv_results/l1lnrect50n8t25/l1mask/",
+                                                 save_l1_path=root + "adv_results/l1lnrect25n8t25/l1mask/",
                                                  save_mask_sample=True,
-                                                 save_mask_path=root + "adv_results/l1lnrect50n8t25/selected_mask",
+                                                 save_mask_path=root + "adv_results/l1lnrect25n8t25/selected_mask",
                                                  target_class_list=[target],
                                                  l1_total_iter=75,
                                                  atk_total_iter=200,
