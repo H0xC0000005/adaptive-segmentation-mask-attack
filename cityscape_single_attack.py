@@ -175,7 +175,7 @@ if __name__ == '__main__':
                                       height=50,
                                       number_of_rec=8,
                                       allow_overlap=False,
-                                      overlap_threshold=50,
+                                      overlap_threshold=25,
                                       )
 
     # adaptive_attack.perform_attack(im2,
@@ -268,11 +268,11 @@ if __name__ == '__main__':
                                                  select_l1_method=l1m_1,
                                                  additional_select_postprocessing=postpro,
                                                  save_attack_samples=True,
-                                                 save_attack_path=root + "adv_results/l1lnrect50n8/attack/",
+                                                 save_attack_path=root + "adv_results/l1lnrect50n8t25/attack/",
                                                  save_l1_samples=True,
-                                                 save_l1_path=root + "adv_results/l1lnrect50n8/l1mask/",
+                                                 save_l1_path=root + "adv_results/l1lnrect50n8t25/l1mask/",
                                                  save_mask_sample=True,
-                                                 save_mask_path=root + "adv_results/l1lnrect50n8/selected_mask",
+                                                 save_mask_path=root + "adv_results/l1lnrect50n8t25/selected_mask",
                                                  target_class_list=[target],
                                                  l1_total_iter=75,
                                                  atk_total_iter=200,
