@@ -143,8 +143,9 @@ if __name__ == '__main__':
     """
     attack sandbox
     """
-    target = 8
-    original = 13
+    # 13=vehicle 8=vegetation
+    target = 13
+    original = 8
 
     start_time = time.time()
     # adaptive_attack.perform_attack(im2,
@@ -171,11 +172,11 @@ if __name__ == '__main__':
     pert_mask[pert_mask == -1] = 1
     additional_loss = [total_variation]
     dynamic_LR_option = "incr"
-    l1m_1 = SelectRectL1IntenseRegion(width=25,
-                                      height=25,
+    l1m_1 = SelectRectL1IntenseRegion(width=75,
+                                      height=75,
                                       number_of_rec=8,
                                       allow_overlap=False,
-                                      overlap_threshold=50,
+                                      overlap_threshold=75,
                                       )
 
     # adaptive_attack.perform_attack(im2,
@@ -261,32 +262,32 @@ if __name__ == '__main__':
 
     postpro = [MaskingToOriginalClass()]
     # save_image(CityscapeDataset.decode_target(mask2.cpu()), "test_mask", root + "adv_results/test/")
-    adaptive_attack.perform_L1plus_second_attack(im2,
-                                                 mask2,
-                                                 mask1,
-                                                 loss_metric="l1",
-                                                 select_l1_method=l1m_1,
-                                                 additional_select_postprocessing=postpro,
-                                                 save_attack_samples=True,
-                                                 save_attack_path=root + "adv_results/l1lnrect25n8t50/attack/",
-                                                 save_l1_samples=True,
-                                                 save_l1_path=root + "adv_results/l1lnrect25n8t50/l1mask/",
-                                                 save_mask_sample=True,
-                                                 save_mask_path=root + "adv_results/l1lnrect25n8t50/selected_mask",
-                                                 target_class_list=[target],
-                                                 l1_total_iter=25,
-                                                 atk_total_iter=200,
-                                                 report_stat_interval=20,
-                                                 report_stat=True,
-                                                 classification_vs_norm_ratio=1 / 16,
-                                                 additional_loss_metric=None,
-                                                 additional_loss_weights=[8],
-                                                 step_update_multiplier=256,
+    pert = adaptive_attack.perform_L1plus_second_attack(im2,
+                                                        mask2,
+                                                        mask1,
+                                                        loss_metric="l1",
+                                                        select_l1_method=l1m_1,
+                                                        additional_select_postprocessing=postpro,
+                                                        save_attack_samples=True,
+                                                        save_attack_path=root + "adv_results/l1lnrect75n8t75tov/attack/",
+                                                        save_l1_samples=True,
+                                                        save_l1_path=root + "adv_results/l1lnrect75n8t75tov/l1mask/",
+                                                        save_mask_sample=True,
+                                                        save_mask_path=root + "adv_results/l1lnrect75n8t75tov/selected_mask",
+                                                        target_class_list=[target],
+                                                        l1_total_iter=25,
+                                                        atk_total_iter=200,
+                                                        report_stat_interval=20,
+                                                        report_stat=True,
+                                                        classification_vs_norm_ratio=1 / 16,
+                                                        additional_loss_metric=None,
+                                                        additional_loss_weights=[8],
+                                                        step_update_multiplier=256,
 
-                                                 logger_agent=lg_agt,
-                                                 logging_variables=logging_var,
+                                                        logger_agent=lg_agt,
+                                                        logging_variables=logging_var,
 
-                                                 )
+                                                        )
 
     ldf: pd.DataFrame
     ldf = lg_agt.export_dataframe(logging_var)

@@ -266,7 +266,7 @@ class AdaptiveSegmentationMaskAttack:
         save_suffix = ""
         if save_path is not None:
             save_suffix += "TS_"
-            save_suffix += f"step{each_step_iter}_aLR{attack_learning_multiplier}" \
+            save_suffix += f"step{each_step_iter}_batch{batch_size}_loop{dataset_loop_count}_aLR{attack_learning_multiplier}" \
                            f"_pLR{perturbation_learning_rate}_{loss_metric}_"
             save_suffix += "LW{:.2f}_".format(1 / classification_vs_norm_ratio)
             if additional_loss_metric is not None:
@@ -284,7 +284,7 @@ class AdaptiveSegmentationMaskAttack:
             m2set.remove(255)
         except KeyError:
             pass
-        print(f">>> untarget atk against {m2set}.")
+        print(f">>> static universal atk against {m2set}.")
 
         if save_sample:
             m2s: torch.Tensor
@@ -345,7 +345,9 @@ class AdaptiveSegmentationMaskAttack:
                 # update towards difference, or absolute value?
                 # global_perturbation += (current_pert - global_perturbation) * perturbation_learning_rate
                 if counter % batch_size == 0:
-                    global_perturbation += current_pert * perturbation_learning_rate / batch_size
+                    # global_perturbation += current_pert * perturbation_learning_rate / batch_size
+                    # global_perturbation += current_pert * perturbation_learning_rate
+                    global_perturbation += (current_pert - global_perturbation) * perturbation_learning_rate
                     batch_pert = None
                 else:
                     if batch_pert is None:
@@ -368,8 +370,8 @@ class AdaptiveSegmentationMaskAttack:
                     # print(f"Iter: {counter}\t Linf: {linf}\t L2: {l2}")
                     if logger_agent is not None:
                         logger_agent.log_variable("Iteration", counter)
-                        logger_agent.log_variable("Linf", linf)
-                        logger_agent.log_variable("L2", l2)
+                        logger_agent.log_variable("Linf", float(linf.cpu().detach()))
+                        logger_agent.log_variable("L2", float(l2.cpu().detach()))
                 counter += 1
         save_image(global_perturbation, "global_pert", save_path, normalize=True)
         if eval_dataset is None:
