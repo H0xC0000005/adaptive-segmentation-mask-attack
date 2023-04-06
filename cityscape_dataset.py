@@ -158,11 +158,11 @@ class CityscapeDataset(Dataset):
         result, _ = cls.inverse_val_transform(img, None)
         return result
 
-    def __getitem__(self, index, randomize=True) -> (str, torch.Tensor, torch.Tensor):
+    def __getitem__(self, index, randomize=False) -> (str, torch.Tensor, torch.Tensor):
         DEBUG = False
         # --- Image operations --- #
         if randomize:
-            index = random.randint(0, len(self.image_list))
+            index = random.randint(0, len(self.image_list)-1)
         image_path = self.image_list[index]
         image_name = image_path[image_path.rfind('/') + 1:]
         # Read image

@@ -378,7 +378,8 @@ class AdaptiveSegmentationMaskAttack:
             return global_perturbation
 
         counter = 1
-        for eval_tuple in eval_dataset:
+        for idx in range(len(eval_dataset)):
+            eval_tuple = eval_dataset.__getitem__(idx)
             img_eval: torch.Tensor
             mask_eval: torch.Tensor
             name, img_eval, mask_eval = eval_tuple[0], eval_tuple[1], eval_tuple[2]

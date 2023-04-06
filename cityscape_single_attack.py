@@ -27,8 +27,8 @@ if __name__ == '__main__':
 
     # Glaucoma dataset
     cityscape_dataset = CityscapeDataset(
-        image_path=root + 'data/cityscape/image',
-        mask_path=root + '/data/cityscape/mask'
+        image_path=root + 'data/hamburg_set/image',
+        mask_path=root + 'data/hamburg_set/mask'
     )
     # cityscape_dataset = CityscapeDataset(
     #     image_path= '/home/peizhu/PycharmProjects/adaptive-segmentation-mask-attack/data/cityscape_single_eg2/image',
@@ -97,8 +97,8 @@ if __name__ == '__main__':
 
     # Read images
     """hardcoded static attack"""
-    im_name1, im1, mask1 = cityscape_dataset[0]
-    im_name2, im2, mask2 = cityscape_dataset[1]
+    im_name1, im1, mask1 = cityscape_dataset[2]
+    im_name2, im2, mask2 = cityscape_dataset[3]
     # print(mask2)
     if vanishing_class is not None:
         mask1[mask1 != vanishing_class] = 0
@@ -176,7 +176,7 @@ if __name__ == '__main__':
                                       height=75,
                                       number_of_rec=8,
                                       allow_overlap=False,
-                                      overlap_threshold=75,
+                                      overlap_threshold=50,
                                       )
 
     # adaptive_attack.perform_attack(im2,
@@ -260,6 +260,7 @@ if __name__ == '__main__':
     #
     #                                  ) -> torch.Tensor:
 
+    atk_identifier = "l1lnrect75n8t50"
     postpro = [MaskingToOriginalClass()]
     # save_image(CityscapeDataset.decode_target(mask2.cpu()), "test_mask", root + "adv_results/test/")
     pert = adaptive_attack.perform_L1plus_second_attack(im2,
@@ -269,25 +270,56 @@ if __name__ == '__main__':
                                                         select_l1_method=l1m_1,
                                                         additional_select_postprocessing=postpro,
                                                         save_attack_samples=True,
-                                                        save_attack_path=root + "adv_results/l1lnrect75n8t75tov/attack/",
+                                                        save_attack_path=root + f"adv_results/{atk_identifier}/attack/",
                                                         save_l1_samples=True,
-                                                        save_l1_path=root + "adv_results/l1lnrect75n8t75tov/l1mask/",
+                                                        save_l1_path=root + f"adv_results/{atk_identifier}/l1mask/",
                                                         save_mask_sample=True,
-                                                        save_mask_path=root + "adv_results/l1lnrect75n8t75tov/selected_mask",
+                                                        save_mask_path=root + f"adv_results/{atk_identifier}/selected_mask",
                                                         target_class_list=[target],
-                                                        l1_total_iter=25,
+                                                        l1_total_iter=100,
                                                         atk_total_iter=200,
                                                         report_stat_interval=20,
                                                         report_stat=True,
                                                         classification_vs_norm_ratio=1 / 16,
                                                         additional_loss_metric=None,
                                                         additional_loss_weights=[8],
-                                                        step_update_multiplier=256,
+                                                        step_update_multiplier=512,
 
                                                         logger_agent=lg_agt,
                                                         logging_variables=logging_var,
 
                                                         )
+    eval_dataset = CityscapeDataset(
+        image_path=root + 'data/hamburg_set_small/image',
+        mask_path=root + 'data/hamburg_set_small/mask'
+    )
+    eval_path = root + f"adv_results/{atk_identifier}/trans_eval"
+    counter = 0
+    for idx in range(len(eval_dataset)):
+        eval_tuple = eval_dataset.__getitem__(idx)
+        img_eval: torch.Tensor
+        mask_eval: torch.Tensor
+        name, img_eval, mask_eval = eval_tuple[0], eval_tuple[1], eval_tuple[2]
+        if not USE_CPU:
+            img_eval = img_eval.cuda(DEVICE_ID)
+            mask_eval = mask_eval.cuda(DEVICE_ID)
+        img_eval = img_eval.unsqueeze(0)
+        img_eval_pert = img_eval + pert
+        pred_out: torch.Tensor
+        pred_out_pert: torch.Tensor
+        pred_out = model(img_eval)
+        pred_out_pert = model(img_eval_pert)
+        pred_out = pred_out.cpu().detach()
+        pred_out_pert = pred_out_pert.cpu().detach()
+        pred_out = torch.argmax(pred_out, dim=1)
+        pred_out_pert = torch.argmax(pred_out_pert, dim=1)
+        pred_out = CityscapeDataset.decode_target(pred_out)
+        pred_out_pert = CityscapeDataset.decode_target(pred_out_pert)
+        print(f"saving image {counter} to {eval_path}")
+        save_image(pred_out, f"eval_{counter}", eval_path)
+        save_image(pred_out_pert, f"eval_{counter}_pert", eval_path)
+
+        counter += 1
 
     ldf: pd.DataFrame
     ldf = lg_agt.export_dataframe(logging_var)
