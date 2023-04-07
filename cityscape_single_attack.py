@@ -97,8 +97,8 @@ if __name__ == '__main__':
 
     # Read images
     """hardcoded static attack"""
-    im_name1, im1, mask1 = cityscape_dataset[2]
-    im_name2, im2, mask2 = cityscape_dataset[3]
+    im_name1, im1, mask1 = cityscape_dataset[4]
+    im_name2, im2, mask2 = cityscape_dataset[5]
     # print(mask2)
     if vanishing_class is not None:
         mask1[mask1 != vanishing_class] = 0
@@ -172,11 +172,11 @@ if __name__ == '__main__':
     pert_mask[pert_mask == -1] = 1
     additional_loss = [total_variation]
     dynamic_LR_option = "incr"
-    l1m_1 = SelectRectL1IntenseRegion(width=75,
-                                      height=75,
-                                      number_of_rec=8,
+    l1m_1 = SelectRectL1IntenseRegion(width=200,
+                                      height=200,
+                                      number_of_rec=1,
                                       allow_overlap=False,
-                                      overlap_threshold=50,
+                                      overlap_threshold=100,
                                       )
 
     # adaptive_attack.perform_attack(im2,
@@ -260,7 +260,7 @@ if __name__ == '__main__':
     #
     #                                  ) -> torch.Tensor:
 
-    atk_identifier = "l1lnrect75n8t50"
+    atk_identifier = "l1lnrect200n1t200trans"
     postpro = [MaskingToOriginalClass()]
     # save_image(CityscapeDataset.decode_target(mask2.cpu()), "test_mask", root + "adv_results/test/")
     pert = adaptive_attack.perform_L1plus_second_attack(im2,
@@ -280,10 +280,10 @@ if __name__ == '__main__':
                                                         atk_total_iter=200,
                                                         report_stat_interval=20,
                                                         report_stat=True,
-                                                        classification_vs_norm_ratio=1 / 16,
+                                                        classification_vs_norm_ratio=1 / 8,
                                                         additional_loss_metric=None,
                                                         additional_loss_weights=[8],
-                                                        step_update_multiplier=512,
+                                                        step_update_multiplier=4096,
 
                                                         logger_agent=lg_agt,
                                                         logging_variables=logging_var,

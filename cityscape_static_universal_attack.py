@@ -110,14 +110,14 @@ if __name__ == '__main__':
                                           report_stat_interval: int = 10
                                           ):
     """
-    im_name1, im1, mask1 = cityscape_dataset[5]
+    im_name1, im1, mask1 = cityscape_dataset[7]
 
     start_time = time.time()
 
     pert = adaptive_attack.perform_static_universal_attack(cityscape_dataset,
                                                            target_mask=mask1,
                                                            loss_metric="l1",
-                                                           each_step_iter=127,
+                                                           each_step_iter=128,
                                                            batch_size=4,
                                                            dataset_loop_count=4,
                                                            save_sample=True,
@@ -126,7 +126,7 @@ if __name__ == '__main__':
                                                            report_stat_interval=5,
                                                            early_stopping_accuracy_threshold=None,
                                                            perturbation_learning_rate=128e-3,  # best prev 60e-3
-                                                           attack_learning_multiplier=1024,
+                                                           attack_learning_multiplier=2048,
                                                            eval_dataset=cityscape_dataset_eval,
                                                            eval_model=model,
                                                            logger_agent=StatsLogger()
