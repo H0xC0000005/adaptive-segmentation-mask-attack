@@ -579,7 +579,7 @@ class SelectRectL1IntenseRegion(SelectL1Method):
                 result_indices.append(conv_top_index)
                 # clear out adjacent area
                 conv_mask[cur_idx[-2] - self.overlap_threshold + 1: cur_idx[-2] + self.overlap_threshold,
-                cur_idx[-1] - self.overlap_threshold + 1: cur_idx[-1] + self.overlap_threshold] = -1000000
+                          cur_idx[-1] - self.overlap_threshold + 1: cur_idx[-1] + self.overlap_threshold] = -1000000
                 result_mask[cur_idx[-2]: cur_idx[-2] + self.height, cur_idx[-1]: cur_idx[-1] + self.width] += 1
             result_mask[result_mask != 0] = 1
             return result_mask
