@@ -1,9 +1,3 @@
-"""
-@author: Utku Ozbulak
-@repository: github.com/utkuozbulak/adaptive-segmentation-mask-attack
-@article: Impact of Adversarial Examples on Deep Learning Models for Biomedical Image Segmentation
-@conference: MICCAI-19
-"""
 from __future__ import annotations
 
 import random
@@ -17,8 +11,24 @@ import copy
 
 import torch
 
+"""
+This file is originated from the forked repo. However since the original file is almost inefficient
+and I added a lot stuff, this is essentially new in this repo.
+
+This file contains the following: 
+image saving functions for binary images (from forked repo, renamed)
+image saving functions for typical images (new)
+custom constraints
+callables for composite attacks
+
+If you want to add in these components you may add to the corresponding block within this file.
+"""
+
 
 def transpose_torch_to_image(img: np.ndarray | torch.Tensor) -> np.ndarray | torch.Tensor:
+    """
+    The utility to transform torch style axis (channel, h, w) to PIL style (h, w, channel).
+    """
     if img.shape[0] in (1, 2, 3):
         # assume first dim = channel, else don't transform
         if isinstance(img, np.ndarray):
@@ -151,6 +161,12 @@ def save_batch_image_difference(org_image: np.ndarray | torch.Tensor,
 
 
 def save_image(im_as_arr: np.ndarray | torch.Tensor, im_name, folder_name: os.PathLike | str, normalize=True):
+    """
+    save image utility, can pass in batched or unbatched single image in
+    ndarray or tensor, in torch or in PIL axis format
+    this wheel will handle these automatically for you
+    :param normalize: if True, automatically equalize to 0-255 interval
+    """
     if not os.path.exists(folder_name):
         os.makedirs(folder_name)
     if isinstance(im_as_arr, torch.Tensor):
@@ -189,7 +205,9 @@ def save_image(im_as_arr: np.ndarray | torch.Tensor, im_name, folder_name: os.Pa
 
 def load_model(path_to_model):
     """
-    Loads pytorch models from disk
+    Loads pytorch models from disk, can work with any model while reporting the returned type
+    the caller should decide what to do with returned model next since it can be
+    nn.Module or dict etc.
     """
     model = torch.load(path_to_model)
     print(f"loaded model {path_to_model} with type {type(model)}")
@@ -273,10 +291,6 @@ def calculate_multiclass_mask_similarity(mask1_raw: np.ndarray | torch.Tensor,
         mask1_single_class = mask1_single_class.astype(float)
         mask2_single_class = mask2_single_class.astype(float)
         if iou_mask is not None:
-            # print(iou_mask.dtype)
-            # print(mask2_single_class.dtype)
-            # print(iou_mask.shape)
-            # print(mask2_single_class.shape)
             mask2_single_class *= iou_mask
             mask1_single_class *= iou_mask
         mask1_single_class = mask1_single_class.astype(float)
@@ -326,6 +340,9 @@ def calculate_image_distance(im1, im2):
 
 
 def report_image_statistics(img: np.ndarray | torch.Tensor):
+    """
+    reporting some statistics as shown, mainly used as debugging
+    """
     if isinstance(img, torch.Tensor):
         img_as_ndarr = img.cpu().detach().numpy()
     else:
@@ -350,11 +367,14 @@ def compute_conv2d_output_shape(in_size: tuple | list,
                                 stride: tuple | list = (1, 1),
                                 ) -> tuple:
     """
-    assume (width, height)
+    all tuples must have length 2 else will raise assertion error
+    assume (width, height) for all tuples
+
+    :return: the output size of this step of convolution
     """
     assert len(in_size) == 2 and len(kernel_size) == 2 and len(padding) == 2 and len(dilation) == 2 and \
            len(stride) == 2, \
-        f"in compute conv2d out size, get one input without len 2. make sure all inputs have len 2."
+           f"in compute conv2d out size, get one input without len 2. make sure all inputs have len 2."
     assert dilation[0] > 0 and dilation[1] > 0, f"in compute conv2d out size, get dilation <= 0: {dilation}"
     res_width = floor((in_size[0] + 2 * padding[0] - dilation[0] * (kernel_size[0] - 1) - 1) / stride[0] + 1)
     res_height = floor((in_size[1] + 2 * padding[1] - dilation[1] * (kernel_size[1] - 1) - 1) / stride[1] + 1)
@@ -363,6 +383,9 @@ def compute_conv2d_output_shape(in_size: tuple | list,
 
 def absolute_index_to_tuple_index(absolute_idx: int,
                                   shape: tuple) -> tuple:
+    """
+    convert a flattened index to tuple index provided shape of unflattened tuple
+    """
     assert len(shape) > 1, f"in absolute idx to tuple idx, received shape {shape} " \
                            f"with len 1. you dont need this conversion :)"
     cur_divisor = 1
@@ -389,7 +412,8 @@ def absolute_index_to_tuple_index(absolute_idx: int,
 def l1d(t1: np.ndarray | torch.Tensor | tuple | list,
         t2: np.ndarray | torch.Tensor | tuple | list) -> float:
     """
-    make use of pointwise computation of
+    compute L1 distance of two array-likes
+    make use of pointwise computation of Tensor type
     """
 
     def to_tensor(x) -> torch.Tensor:
@@ -416,6 +440,12 @@ def convert_multiclass_mask_to_binary(mask: torch.Tensor,
                                       target_class: int,
                                       invert_flag: bool = False
                                       ) -> torch.Tensor:
+    """
+    convert a multi-class output to a binary mask with:
+        all pixels that are target class with value 1
+        else 0
+    this is useful to mask an output to perform class-wise operations such as loss
+    """
     result = copy.deepcopy(mask)
     class_set = set(np.array(torch.unique(mask.cpu().detach())))
     temp_class = None
@@ -433,6 +463,9 @@ def convert_multiclass_mask_to_binary(mask: torch.Tensor,
 
 
 def invert_binary_mask(mask: torch.Tensor) -> torch.Tensor:
+    """
+    invert a binary mask
+    """
     maskc = copy.deepcopy(mask)
     maskc[maskc != 0] = 255
     maskc[maskc == 0] = 1
@@ -475,7 +508,8 @@ def evaluate_externality(pert_mask: torch.Tensor,
 
 
 """
-closures for various purposes
+closures for various purposes such as composite attacks and self defined constraints
+
 """
 
 
@@ -579,7 +613,7 @@ class SelectRectL1IntenseRegion(SelectL1Method):
                 result_indices.append(conv_top_index)
                 # clear out adjacent area
                 conv_mask[cur_idx[-2] - self.overlap_threshold + 1: cur_idx[-2] + self.overlap_threshold,
-                          cur_idx[-1] - self.overlap_threshold + 1: cur_idx[-1] + self.overlap_threshold] = -1000000
+                cur_idx[-1] - self.overlap_threshold + 1: cur_idx[-1] + self.overlap_threshold] = -1000000
                 result_mask[cur_idx[-2]: cur_idx[-2] + self.height, cur_idx[-1]: cur_idx[-1] + self.width] += 1
             result_mask[result_mask != 0] = 1
             return result_mask

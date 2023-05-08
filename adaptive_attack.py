@@ -1,34 +1,28 @@
-"""
-@author: Utku Ozbulak
-@repository: github.com/utkuozbulak/adaptive-segmentation-mask-attack
-@article: Impact of Adversarial Examples on Deep Learning Models for Biomedical Image Segmentation
-@conference: MICCAI-19
-"""
+
 from __future__ import annotations
 
 import gc
-import random
-import typing
 from os.path import isfile
 
-import torch
 from torch.autograd import Variable
 from torch.utils.data import Dataset
 
 from cityscape_dataset import CityscapeDataset
 from self_defined_loss import *
-import re
+# random.seed(4)
+from stats_logger import StatsLogger
+
 
 # from torch.autograd import Variable
 # In-repo imports
 
 
-# random.seed(4)
-from stats_logger import StatsLogger
-
-
 def debug_image_as_arr(arr: np.ndarray, name: str = "test",
                        path: str = '/home/peizhu/PycharmProjects/adaptive-segmentation-mask-attack/'):
+    """
+    debugging function which saves target image you may also use
+    @deprecated: recommended to use helper_functions.save_image()
+    """
     counter = 0
     arr_cp = copy.deepcopy(arr)
     while isfile(path + name + str(counter)):
@@ -40,11 +34,18 @@ def debug_image_as_arr(arr: np.ndarray, name: str = "test",
 
 
 class AdaptiveSegmentationMaskAttack:
+    """
+    the main class of an attack section.
+    since DAG is used as backbone this initializer forces a tau and beta.
+    you can override or modify this __init__ to support other attack stepping methods.
+    """
+
     def __init__(self, device_id: int, model: torch.nn.Module, tau: float, beta: float, *, use_cpu=False):
-        self.temporary_class_id = 65535
+        self.temporary_class_id = 65535  # hardcoded out-of-distribution class ID for ID swapping
         self.unique_classes = None  # much like a bit hacking that this is quite dynamic
-        self.device_id = device_id
-        self.model = model
+        self.device_id = device_id  # GPU IDs used. This pipeline supports dataparallel but make sure every GPU can
+        # at least fits the model
+        self.model = model  # the target model
         self.tau = tau
         self.beta = beta
         self.use_cpu = use_cpu
@@ -52,6 +53,10 @@ class AdaptiveSegmentationMaskAttack:
 
     @staticmethod
     def update_perturbation_multiplier(option: str, beta, tau, iou) -> float:
+        """
+        determine the next iteration's perturbation update rate based on IOU
+        this is a companion function of DAG stepping
+        """
         if option is None:
             return beta / 2
         if "incr" in option:
@@ -71,6 +76,13 @@ class AdaptiveSegmentationMaskAttack:
 
     @staticmethod
     def calculate_loss_facade(x, y, metric: str):
+        """
+        the facade interface to calculate distance metric.
+        implementation of each supported metric should be provided separately and
+        feel free to add new fancy distance metric and provide their implementation here.
+
+        metric: a string that specifies the distance norm used.
+        """
         metric2method_mapp = {"l1": AdaptiveSegmentationMaskAttack.calculate_l1_loss,
                               "l2": AdaptiveSegmentationMaskAttack.calculate_l2_loss,
                               "linf": AdaptiveSegmentationMaskAttack.calculate_linf_loss,
@@ -126,15 +138,10 @@ class AdaptiveSegmentationMaskAttack:
         loss = torch.dist(x, y, p=1).item()
         return loss
 
-    @staticmethod
-    def calculate_l1_dense_mask(perturbation: torch.Tensor) -> torch.Tensor:
-        """
-        calculate the most dense parts of a perturbation and return as a 0-1 mask as tensor
-        """
-        pass
-
     def do_model_prediction(self, input_image: torch.Tensor) -> torch.Tensor:
-
+        """
+        refactored model forward pass since this piece of code is used frequently for segmentation model
+        """
         # Image to perform the attack on
         image_to_optimize: torch.Tensor
         image_to_optimize = input_image.unsqueeze(0)
@@ -146,6 +153,17 @@ class AdaptiveSegmentationMaskAttack:
 
     def calculate_target_pred_loss(self, target_mask, pred_out, model_output,
                                    target_class: typing.Iterable[int] = None):
+        """
+        calculate prediction loss for specified list of target class IDs.
+        the loss is a raw summation of prediction loss for each class.
+        WARNING: this loss only support loss on a single image.
+        you need to make your hands dirty for batched pred loss.
+
+        :param model_output: raw model output
+        :param pred_out: batched prediction target, should be in size [1, x, y, z].
+        :param target_mask: a region where only outputs in the region is computed.
+        :param target_class: the list of target class that are computed over for loss.
+        """
         # pred_loss = self.calculate_target_pred_loss(target_mask, pred_out, out, target_class=target_classes)
         loss = 0
         if self.unique_classes is None:
@@ -183,7 +201,14 @@ class AdaptiveSegmentationMaskAttack:
 
     def calculate_untargeted_pred_loss(self, pred_out, model_output,
                                        original_class: typing.Iterable[int] = None,
-                                       target_class: typing.Iterable[int] = None):
+                                       ):
+        """
+        compute untargeted pred loss. similar to calculate_target_pred_loss.
+
+        :param pred_out: target.
+        :param model_output: raw model output.
+        :param original_class: the class to be computed for untargeted pred loss.
+        """
         loss = 0
         if self.unique_classes is None:
             print(f"attack object has unique classes not set (currently None), returning from calculating loss")
@@ -211,34 +236,6 @@ class AdaptiveSegmentationMaskAttack:
             loss = loss + channel_loss
         return loss
 
-    # def perform_attack(self,
-    #                    input_image: torch.Tensor,
-    #                    org_mask: torch.Tensor,
-    #                    target_mask: torch.Tensor | None,
-    #                    *,
-    #                    target_class_list: typing.Collection,
-    #
-    #                    kwargs_for_metrics: dict[str, typing.Any] = None,
-    #                    perturbation_mask: torch.Tensor = None,
-    #                    initial_perturbation: torch.Tensor = None,
-    #                    loss_metric: str = "l2",
-    #                    additional_loss_metric: typing.Collection[typing.Callable] = None,
-    #                    additional_loss_weights: typing.Collection[float] = None,
-    #                    total_iter=500,
-    #                    classification_vs_norm_ratio: float = 1 / 16,
-    #                    step_update_multiplier: float = 4,
-    #                    save_samples: bool = True,
-    #                    save_path: str | None = None,
-    #                    verbose: bool = False,
-    #                    report_stats: bool = True,
-    #                    report_stat_interval: int = 10,
-    #                    early_stopping_accuracy_threshold: float | None = 1e-4,
-    #                    dynamic_LR_option: str = None,
-    #
-    #                    logger_agent: StatsLogger = None,
-    #                    logging_variables: list | tuple = None,
-    #                    ) -> torch.Tensor:
-
     def perform_static_universal_attack(self,
                                         segmentation_dataset: CityscapeDataset,
                                         target_mask: torch.Tensor,
@@ -260,9 +257,16 @@ class AdaptiveSegmentationMaskAttack:
                                         dynamic_LR_option: str = None,
                                         logger_agent: StatsLogger = None,
 
-                                        eval_dataset: Dataset = None,
+                                        eval_dataset: Dataset = (),
                                         eval_model: torch.nn.Module = None,
                                         ) -> torch.Tensor:
+        """
+        perform universal attack on a static target segmentation.
+        for interface, see also perform_attack(...).
+
+        :return: the universal perturbation.
+        """
+
         save_suffix = ""
         if save_path is not None:
             save_suffix += "TS_"
@@ -311,18 +315,10 @@ class AdaptiveSegmentationMaskAttack:
                     mask = sample_tuple[2]
                 else:
                     raise ValueError(f"sample tuple returned by your dataset is {len(sample_tuple)} instead of 2 or 3")
-
-                # report_image_statistics(mask)
-                # report_image_statistics(img)
-                # Perform attack
                 if global_perturbation is None:
                     global_perturbation = torch.zeros(img.shape, device="cpu")
                     if not self.use_cpu:
                         global_perturbation = global_perturbation.cuda(self.device_id)
-                # if counter == 1:
-                #     save_image(mask, "mask_test1", save_path, normalize=False)
-                #     save_image(mask2, "mask_test2", save_path, normalize=False)
-
                 current_pert = self.perform_attack(img,
                                                    mask,
                                                    mask2,
@@ -340,10 +336,7 @@ class AdaptiveSegmentationMaskAttack:
                                                    step_update_multiplier=attack_learning_multiplier,
                                                    additional_loss_metric=additional_loss_metric,
                                                    additional_loss_weights=additional_loss_weights,
-
                                                    )
-                # update towards difference, or absolute value?
-                # global_perturbation += (current_pert - global_perturbation) * perturbation_learning_rate
                 if counter % batch_size == 0:
                     # global_perturbation += current_pert * perturbation_learning_rate / batch_size
                     # global_perturbation += current_pert * perturbation_learning_rate
@@ -377,6 +370,7 @@ class AdaptiveSegmentationMaskAttack:
         if eval_dataset is None:
             return global_perturbation
 
+        # evaluation. you can skip this if no eval_dataset is provided
         counter = 1
         for idx in range(len(eval_dataset)):
             eval_tuple = eval_dataset.__getitem__(idx)
@@ -432,9 +426,17 @@ class AdaptiveSegmentationMaskAttack:
                                           dynamic_LR_option: str = None,
                                           logger_agent: StatsLogger = None,
 
-                                          eval_dataset: Dataset = None,
+                                          eval_dataset: Dataset = (),
                                           eval_model: torch.nn.Module = None,
                                           ) -> torch.Tensor:
+        """
+        perform a universal attack on dynamic scenes.
+        you can provide as many input-target_segmentation pairs to be the attacking dataset.
+        the code is similar to universal on static scenes but I decided to duplicate.
+        for interface info, see also perform_attack(...).
+
+        :return: perturbation.
+        """
         save_suffix = ""
         if save_path is not None:
             save_suffix += "T_"
@@ -487,11 +489,6 @@ class AdaptiveSegmentationMaskAttack:
                     pert_mask[pert_mask == self.temporary_class_id] = 1
                 else:
                     pert_mask = None
-
-                # if counter == 1:
-                #     save_image(mask, "mask_test1", save_path, normalize=False)
-                #     save_image(mask2, "mask_test2", save_path, normalize=False)
-
                 current_pert = self.perform_attack(img,
                                                    mask,
                                                    mask2,
@@ -608,9 +605,14 @@ class AdaptiveSegmentationMaskAttack:
 
                                      ) -> torch.Tensor:
         """
+        perform L1 + Ln two-step attack.
         loss metric, c_vs_norm_ratio are for step L2
+        for most interface info, see also perform_attack(...)
 
-        select_l1_method should be a callable that is a closure. a closure is defined here with default args
+        :param select_l1_method should be a callable that is a closure. a closure is defined here with default args
+        :param additional_select_postprocessing: postprocessing after select_l1_method()
+
+        :return: the perturbation.
         """
 
         if save_attack_samples:
@@ -730,6 +732,39 @@ class AdaptiveSegmentationMaskAttack:
                        logger_agent: StatsLogger = None,
                        logging_variables: list | tuple = None,
                        ) -> torch.Tensor:
+        """
+        the attack interface for one-time attacks.
+           :param input_image: raw image. should not be batched.
+           :param org_mask: original segmentation. should not be batched.
+           :param target_mask: target segmentation. if specified, performs a targeted attack. else, perform an untargeted
+           attack.
+           :param target_class_list: attack target classes.
+           :param kwargs_for_metrics: additional metrics for self defined metrics, should be an arg dict
+           :param perturbation_mask: a mask that perturbation is allowed to be
+           :param initial_perturbation: as per name :)
+           :param loss_metric: a string specifying distance metric used for norm loss
+           :param additional_loss_metric: a list of customizable loss metrics, where each of callable is called with
+                    kwargs_for_metrics.
+           :param additional_loss_weights: a list of weights for each of customizable loss
+           :param total_iter: total iteration of attack
+           :param classification_vs_norm_ratio: the ratio between prediction loss and norm loss
+           :param step_update_multiplier: the LR (learning rate). This is a multiplier of a basic learning rate
+                    and you should take care of that based on attack type used.
+           :param save_samples: the flag to save sample. if True, save_path must be provided.
+           :param save_path: the path to save necessary atk data.
+           :param verbose: be extremely talky and verbose! :)
+           :param report_stats: the flag to report some stats in the terminal
+           :param report_stat_interval: if report_stats, this is the interval to report
+           :param early_stopping_accuracy_threshold: if current accuracy - previous accuacy is smaller than this,
+                    and at least half iterations are done, the function halts
+           :param dynamic_LR_option: currently should contain 'incr' or 'decr', or be None.
+                    this is dynamic learning rate option towards convergence.
+
+           :param logger_agent: logger to log statistics.
+           :param logging_variables: items to be logged.
+
+           :return: the one-time attack perturbation.
+        """
 
         assert not (save_path is None and save_samples), f"in perform_attack, " \
                                                          f"attempt to save samples without save path specified."

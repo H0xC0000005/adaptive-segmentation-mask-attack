@@ -7,7 +7,10 @@ from helper_functions import *
 import typing
 
 """
-self defined losses. some naming conventions:
+self defined losses. since these can be called in a quite deterministic way
+they are merely functions but not callable classes as closure
+
+some naming conventions:
 tensor1 (original)
 tensor2 (target)
 weight (weight of this loss)
