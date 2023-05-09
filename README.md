@@ -1,5 +1,5 @@
 # a universal pipeline for most basic white-box segmentation attack types
-This repository is the developing repository by H0xC0000005 with a title "a universal pipeline for white box segmentation attacks", which supports most primitive types of white box segmentation attacks.
+This repository is the developing repository by H0xC0000005 as final year project for bachelor degree titled "a universal pipeline for white box segmentation attacks", which supports most primitive types of white box segmentation attacks.
 \
 This repository uses the forked repository as a backbone perturbation update method, so I would rather keep this as a fork. If you are more interested in original implementation of paper please just go to the forked repo.
 \
